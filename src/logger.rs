@@ -124,6 +124,8 @@ fn load_faces(
     (levels, keywords)
 }
 
+struct LogRecord { line: String }
+
 pub struct Logger {
     level_names: HashMap<String, Vec<String>>,
     keyword_faces: Vec<(Vec<String>, Vec<String>)>,
@@ -181,17 +183,10 @@ impl Logger {
             face,
             msg
         );
-        use std::io::Write;
-        let _ = std::io::stdout().write_all(line.as_bytes());
-        let _ = std::io::stdout().flush();
-        if let Ok(mut f) = self.file.lock() {
-            if let Some(file) = f.as_mut() {
-                let _ = file.write_all(line.as_bytes());
-            }
-        }
+        let _ = self.log_tx.send(LogRecord { line });
     }
 
-    pub fn debug(&self, m: &str) {
+        pub fn debug(&self, m: &str) {
         self.log(crate::util::LVL_DEBUG, m);
     }
     pub fn info(&self, m: &str) {
