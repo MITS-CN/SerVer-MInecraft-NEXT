@@ -27,6 +27,7 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
+      # Keep formatting out of the gate until the existing codebase is formatted.
       - name: Compile
         run: cargo check --locked
 
