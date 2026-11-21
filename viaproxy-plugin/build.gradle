@@ -1,0 +1,16 @@
+plugins { id 'java' }
+group = 'cn.mits'
+version = '1.0.0'
+java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
+repositories {
+    mavenCentral()
+    maven { name = 'ViaVersion'; url = 'https://repo.viaversion.com/everything' }
+}
+dependencies {
+    compileOnly('net.raphimc:ViaProxy:3.4.13') { transitive = false }
+}
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+jar { archiveFileName = 'nekogate-viaproxy-plugin.jar' }
