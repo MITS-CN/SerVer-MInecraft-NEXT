@@ -3,8 +3,8 @@
 ## Requirements
 
 - Rust stable toolchain
-- JDK 17 or newer
-- Gradle 8.x or newer available as `gradle` on PATH
+- JDK 17 or newer (Java 25 is supported)
+- PowerShell on Windows, or `curl`, `sha256sum`, and `unzip` on Linux/macOS
 - A ViaProxy JAR in the project working directory (either `ViaProxy.jar` or `ViaProxy-3.4.14.jar`)
 
 ## Build and run
@@ -16,7 +16,7 @@ cargo build --release
 cargo run --release -- --log-level DEBUG
 ```
 
-On first launch, NekoGate automatically runs `gradle -p viaproxy-plugin build` when the plugin JAR is missing, then copies the built plugin into the ViaProxy `plugins` directory. You no longer need to build the plugin manually. Gradle and JDK 17+ must be installed and available on PATH.
+On first launch, NekoGate automatically downloads Gradle 9.1.0 when it is not already cached, verifies the official SHA-256 checksum, builds the plugin, and copies it into the ViaProxy `plugins` directory. You do not need to install Gradle or add it to PATH. The Gradle distribution is cached under the user's local cache directory. A compatible JDK (17 or newer) is still required.
 
 The plugin exposes a loopback-only control socket on port 25626; it is not reachable from the LAN.
 

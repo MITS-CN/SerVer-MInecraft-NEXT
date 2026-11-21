@@ -1,7 +1,8 @@
 plugins { id 'java' }
 group = 'cn.mits'
 version = '1.0.0'
-java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }
+// Compile against Java 17 APIs without requiring a separate JDK 17 toolchain.
+// This also allows the build to run on newer installed JDKs such as Java 25.
 repositories {
     mavenCentral()
     maven { name = 'ViaVersion'; url = 'https://repo.viaversion.com/everything' }

@@ -140,13 +140,13 @@ fn main() {
         // progress visible and, crucially, ensures startup failures are not hidden
         // when the asynchronous logger thread is stopped by an early return.
         #[cfg(windows)]
-        let build_result = std::process::Command::new("cmd")
-            .args(["/C", "gradle", "-p", "viaproxy-plugin", "build"])
+        let build_result = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/build-viaproxy-plugin.ps1"])
             .current_dir(&cwd)
             .status();
         #[cfg(not(windows))]
-        let build_result = std::process::Command::new("gradle")
-            .args(["-p", "viaproxy-plugin", "build"])
+        let build_result = std::process::Command::new("sh")
+            .args(["scripts/build-viaproxy-plugin.sh"])
             .current_dir(&cwd)
             .status();
 
@@ -163,7 +163,7 @@ fn main() {
             }
             Err(e) => {
                 eprintln!(
-                    "[ViaProxy] 无法执行 Gradle 自动构建: {}。请安装 Gradle 并确保 gradle 在 PATH 中。",
+                    "[ViaProxy] 无法执行 Gradle 自动构建脚本: {}。请检查 PowerShell 或 sh 是否可用。",
                     e
                 );
                 return;
