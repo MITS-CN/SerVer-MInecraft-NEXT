@@ -132,6 +132,7 @@ pub fn handle_client(
     };
     let _ = client.set_read_timeout(None);
 
+    logger.debug(&format!("[{}] 握手 payload 长度={} 前缀={:02X?}", conn_id, hs_pkt.len(), &hs_pkt[..hs_pkt.len().min(16)]));
     let handshake = parse_handshake(&hs_pkt);
     let protocol_version = handshake.as_ref().map(|h| h.protocol).unwrap_or(-1);
 
@@ -208,7 +209,8 @@ pub fn handle_client(
                 return;
             }
         };
-        if write_packet(&mut bw, &hs_pkt).is_err() {
+        if let Err(e) = write_packet(&mut bw, &hs_pkt) {
+            logger.warn(&format!("[{}] 握手转发失败: {}", conn_id, e));
             ACTIVE_CONNECTIONS.fetch_sub(1, Ordering::Relaxed);
             return;
         }
@@ -255,11 +257,24 @@ pub fn handle_client(
     let lg_up = logger.clone();
     let cid_up = conn_id.clone();
     let up_handle = std::thread::spawn(move || {
+        let mut packet_count = 0u64;
         loop {
             let pkt = match read_packet(&mut c_reader) {
                 Ok(p) if !p.is_empty() => p,
-                _ => break,
+                Ok(_) => {
+                    lg_up.debug(&format!("[{}] 上行读取到空包/连接关闭", cid_up));
+                    break;
+                }
+                Err(e) => {
+                    lg_up.debug(&format!("[{}] 上行读取结束: {}", cid_up, e));
+                    break;
+                }
             };
+            packet_count += 1;
+            if packet_count <= 8 {
+                let (pid, _) = read_varint_slice(&pkt);
+                lg_up.debug(&format!("[{}] 上行包 #{} len={} packet_id=0x{:X}", cid_up, packet_count, pkt.len(), pid));
+            }
             up_bytes_c.fetch_add(pkt.len() as u64, Ordering::Relaxed);
             GLOBAL_UPLOAD.fetch_add(pkt.len() as u64, Ordering::Relaxed);
 
@@ -288,11 +303,24 @@ pub fn handle_client(
     // ---- 下行 ----
     let mut b_reader = backend;
     let mut down_bytes: u64 = 0;
+    let mut down_packets = 0u64;
     loop {
         let pkt = match read_packet(&mut b_reader) {
             Ok(p) if !p.is_empty() => p,
-            _ => break,
+            Ok(_) => {
+                logger.debug(&format!("[{}] 下行读取到空包/连接关闭", conn_id));
+                break;
+            }
+            Err(e) => {
+                logger.debug(&format!("[{}] 下行读取结束: {}", conn_id, e));
+                break;
+            }
         };
+        down_packets += 1;
+        if down_packets <= 8 {
+            let (pid, _) = read_varint_slice(&pkt);
+            logger.debug(&format!("[{}] 下行包 #{} len={} packet_id=0x{:X}", conn_id, down_packets, pkt.len(), pid));
+        }
         down_bytes += pkt.len() as u64;
         GLOBAL_DOWNLOAD.fetch_add(pkt.len() as u64, Ordering::Relaxed);
 
