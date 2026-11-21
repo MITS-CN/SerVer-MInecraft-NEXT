@@ -39,37 +39,30 @@ pub type Players = Arc<Mutex<HashMap<u64, Player>>>;
 // say 注入
 // ============================================================
 
-pub fn broadcast_system_chat(players: &Players, msg: &str) -> usize {
-    let targets: Vec<(Arc<Mutex<TcpStream>>, i32, i32)> = {
+pub fn broadcast_system_chat(players: &Players, msg: &str, logger: &Logger) -> usize {
+    let targets: Vec<(u64, Arc<Mutex<TcpStream>>, i32, i32, ConnState)> = {
         let lock = players.lock().unwrap();
-        lock.values()
-            .filter(|p| p.state == ConnState::Play)
-            .map(|p| {
-                (
-                    p.writer.clone(),
-                    p.compression_threshold,
-                    p.protocol_version,
-                )
-            })
-            .collect()
+        lock.iter().filter(|(_, p)| p.state == ConnState::Play)
+            .map(|(id, p)| (*id, p.writer.clone(), p.compression_threshold, p.protocol_version, p.state)).collect()
     };
-
+    logger.info(&format!("[say] 开始广播 message_bytes={} targets={} text={:?}", msg.as_bytes().len(), targets.len(), msg));
+    let total_targets = targets.len();
     let mut count = 0usize;
-    for (writer, thresh, proto) in targets {
+    for (id, writer, thresh, proto, state) in targets {
         let pkt = build_system_chat_packet(msg, proto);
         let wire = wrap_packet(&pkt, thresh);
-        if let Ok(mut w) = writer.lock() {
-            if w.write_all(&wire).is_ok() {
-                count += 1;
-            }
+        logger.debug(&format!("[say][player={}] protocol={} state={:?} compression_threshold={} payload_len={} payload_hex={:02X?} frame_len={} frame_hex={:02X?}", id, proto, state, thresh, pkt.len(), &pkt[..pkt.len().min(256)], wire.len(), &wire[..wire.len().min(272)]));
+        match writer.lock() {
+            Ok(mut w) => match w.write_all(&wire).and_then(|_| w.flush()) {
+                Ok(()) => { count += 1; logger.info(&format!("[say][player={}] 写入成功 bytes={}", id, wire.len())); }
+                Err(e) => logger.error(&format!("[say][player={}] 写入失败: {}", id, e)),
+            },
+            Err(_) => logger.error(&format!("[say][player={}] writer Mutex poisoned", id)),
         }
     }
+    logger.info(&format!("[say] 广播结束 success={}/{}", count, total_targets));
     count
 }
-
-// ============================================================
-// 连接处理
-// ============================================================
 
 pub fn handle_client(
     mut client: TcpStream,
