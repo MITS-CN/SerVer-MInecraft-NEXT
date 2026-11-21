@@ -2,6 +2,8 @@
 /Log/
 /minecraft/
 /target/
+/viaproxy-plugin/build/
+/plugins/
 
 # 编辑器
 .vscode/

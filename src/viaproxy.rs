@@ -59,6 +59,7 @@ pub fn start_viaproxy(
         .arg("NONE")
         .arg("--proxy-online-mode")
         .arg("false")
+        .env("NEKOGATE_CONTROL_PORT", "25626")
         .arg("--ignore-protocol-translation-errors")
         .arg("true")
         .stdout(Stdio::piped())
