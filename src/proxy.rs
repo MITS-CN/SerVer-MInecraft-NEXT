@@ -64,9 +64,6 @@ pub fn broadcast_system_chat(players: &Players, msg: &str, logger: &Logger) -> u
     count
 }
 
-连接处理
-// ============================================================
-
 pub fn handle_client(
     mut client: TcpStream,
     t_host: String,
