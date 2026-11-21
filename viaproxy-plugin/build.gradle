@@ -1,18 +1,29 @@
 plugins { id 'java' }
 group = 'cn.mits'
 version = '1.0.0'
+
 // Compile against Java 17 APIs without requiring a separate JDK 17 toolchain.
-// This also allows the build to run on newer installed JDKs such as Java 25.
 repositories {
     mavenCentral()
     maven { name = 'ViaVersion'; url = 'https://repo.viaversion.com/everything' }
 }
+
 dependencies {
-    // 26.3 packet types are supplied by the ViaVersion version bundled with ViaProxy 3.4.14.
+    // ViaProxy supplies the runtime API; it must not be bundled into the plugin.
     compileOnly('net.raphimc:ViaProxy:3.4.14') { transitive = false }
+    // Bundle SQLite JDBC and its native libraries so the plugin is self-contained.
+    implementation('org.xerial:sqlite-jdbc:3.50.3.0')
 }
+
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = 17
 }
-jar { archiveFileName = 'nekogate-viaproxy-plugin.jar' }
+
+jar {
+    archiveFileName = 'nekogate-viaproxy-plugin.jar'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+}

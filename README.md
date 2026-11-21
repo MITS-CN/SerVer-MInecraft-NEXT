@@ -1,6 +1,6 @@
 # NekoProxy
 
-**NekoProxy** 是一个使用 Rust 编写、以 [ViaProxy](https://github.com/ViaVersion/ViaProxy) 为协议转换核心的 Minecraft Java Edition TCP 代理。项目将轻量级连接转发、连接状态跟踪与流量统计交给 Rust 处理，并通过 ViaProxy / ViaVersion 的协议管线兼容不同 Minecraft 客户端版本；同时提供聊天消息注入插件，支持从代理控制台向在线玩家发送系统消息。
+**NekoProxy** 是一个使用 Rust 编写、以 [ViaProxy](https://github.com/ViaVersion/ViaProxy) 为协议转换核心的 Minecraft Java Edition TCP 代理。项目将轻量级连接转发、连接状态跟踪与流量统计交给 Rust 处理，并通过 ViaProxy / ViaVersion 的协议管线兼容不同 Minecraft 客户端版本；同时提供代理层管理命令、SQLite 封禁名单和聊天消息注入插件。
 
 > 项目仍在持续开发中。Minecraft 协议兼容性取决于所使用的 ViaProxy 版本及其协议支持范围。
 
@@ -9,7 +9,7 @@
 - **Rust TCP 代理入口**：默认监听 `0.0.0.0:25565`，接收 Minecraft Java Edition 客户端连接。
 - **ViaProxy 协议转换**：由独立 Java 子进程处理实际的 Minecraft 协议转换与后端连接。
 - **自定义后端**：可指定目标服务器地址和端口；默认目标为项目配置的时光墟服务器。
-- **聊天消息注入**：自动构建并安装 ViaProxy 插件，通过 ViaVersion 转换管线发送系统聊天消息。
+- **代理层管理命令**：支持 `say`、`tell`、`kick`、`ban`、`unban`、`banlist` 和 `list`，不依赖后端 RCON 或服务端管理插件。\n- **SQLite 封禁名单**：在 `plugins/NekoGate/bans.sqlite3` 保存玩家名、可用时的 UUID、封禁原因、操作者和时间；玩家重新连接时由 ViaProxy 插件检查并拒绝。\n- **聊天消息注入**：自动构建并安装 ViaProxy 插件，通过 ViaVersion 转换管线按目标玩家客户端协议发送系统聊天消息。
 - **连接状态跟踪**：跟踪连接数、玩家状态以及握手、登录和配置阶段。
 - **流量统计**：统计上行、下行和总流量，并定期输出报告。
 - **可配置 MOTD 与 LAN 发现**：支持自定义局域网广播 MOTD、指定广播网卡或关闭广播。
@@ -32,10 +32,10 @@ Minecraft 客户端
        v
    目标 Minecraft 服务器
 
-NekoProxy Rust  <---- 本机控制通道 :25626 ----> ViaProxy 聊天插件
+NekoProxy Rust  <---- 本机 JSON 控制通道 :25626 ----> ViaProxy 管理插件\n                                                   |\n                                                   +---- SQLite 封禁数据库
 ```
 
-Rust 代理负责接入客户端、跟踪连接状态和统计流量；ViaProxy 负责协议转换及后端连接。聊天插件使用独立的本机控制通道接收消息请求。
+Rust 代理负责接入客户端、跟踪连接状态和统计流量；ViaProxy 负责协议转换及后端连接。ViaProxy 管理插件接收 Rust 控制台的 JSON 命令，直接管理 ViaProxy 玩家会话；消息包仍经 ViaVersion 转换。封禁数据由插件写入 SQLite，并在玩家登录时检查。
 
 ## 环境要求
 
