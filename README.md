@@ -11,6 +11,7 @@
 - **自定义后端**：可指定目标服务器地址和端口；默认目标为项目配置的时光墟服务器。
 - **代理层管理命令**：支持 `say`、`tell`、`kick`、`ban`、`unban`、`banlist` 和 `list`，不依赖后端 RCON 或服务端管理插件。
 - **SQLite 封禁名单**：在 `plugins/NekoGate/bans.sqlite3` 保存玩家名、可用时的 UUID、封禁原因、操作者和时间；玩家连接后由 ViaProxy 插件检查封禁状态，并断开已封禁玩家。
+- **玩家活动审计日志（默认关闭）**：可通过 `plugins/NekoGate/config.properties` 开关，按需记录玩家聊天、玩家指令和上下线时间；日志以 JSON Lines 格式持续追加到 `plugins/NekoGate/player-activity.jsonl`，不会覆盖旧记录。
 - **聊天消息注入**：自动构建并安装 ViaProxy 插件，通过 ViaVersion 转换管线按目标玩家客户端协议发送系统聊天消息。
 - **连接状态跟踪**：跟踪连接数、玩家状态以及握手、登录和配置阶段。
 - **流量统计**：统计上行、下行和总流量，并定期输出报告。
@@ -152,6 +153,21 @@ help
 ```
 
 封禁数据库默认保存在 `plugins/NekoGate/bans.sqlite3`。请定期备份该文件；删除它会丢失本地封禁记录。封禁检查由 ViaProxy 插件执行，命令和封禁数据都不依赖后端服务器的 RCON。
+
+## 玩家活动日志
+
+ViaProxy 插件首次启动时会生成 `plugins/NekoGate/config.properties`。默认配置不会记录玩家活动：
+
+```properties
+logging.enabled=false
+logging.chat=true
+logging.commands=true
+logging.connections=true
+```
+
+将 `logging.enabled` 改为 `true` 并重启代理即可启用。三个分类开关可以分别控制聊天内容、玩家发送的指令和上下线记录。日志写入 `plugins/NekoGate/player-activity.jsonl`，每行是一条独立的 JSON 事件，采用追加写入，重启后继续累计。
+
+**注意：** 聊天日志会保存玩家发送的原文；指令日志记录代理观察到的玩家指令，不代表后端一定执行成功。日志可能包含个人信息并持续增长，请告知玩家相关记录规则，并妥善限制文件访问、定期归档或清理。
 
 ## 网络与安全说明
 
