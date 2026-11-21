@@ -118,6 +118,34 @@ fn main() {
         logger.info("UDP 广播关闭");
     }
 
+    // ---------- 安装 ViaProxy 原生聊天注入插件 ----------
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let plugin_candidates = [
+        cwd.join("viaproxy-plugin").join("build").join("libs").join("nekogate-viaproxy-plugin.jar"),
+        base_dir.join("viaproxy-plugin").join("build").join("libs").join("nekogate-viaproxy-plugin.jar"),
+    ];
+    let plugin_jar = match plugin_candidates.iter().find(|path| path.is_file()) {
+        Some(path) => path,
+        None => {
+            logger.error(&format!(
+                "ViaProxy 聊天插件未构建。请先运行: gradle -p viaproxy-plugin build；检查位置: {}",
+                plugin_candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
+            ));
+            std::process::exit(1);
+        }
+    };
+    let plugins_dir = cwd.join("plugins");
+    if let Err(e) = std::fs::create_dir_all(&plugins_dir) {
+        logger.error(&format!("无法创建 ViaProxy plugins 目录 {}: {}", plugins_dir.display(), e));
+        std::process::exit(1);
+    }
+    let installed_plugin = plugins_dir.join("nekogate-viaproxy-plugin.jar");
+    if let Err(e) = std::fs::copy(plugin_jar, &installed_plugin) {
+        logger.error(&format!("无法安装 ViaProxy 聊天插件: {}", e));
+        std::process::exit(1);
+    }
+    logger.info(&format!("[ViaProxy] 已安装聊天插件: {}", installed_plugin.display()));
+
     // ---------- 启动 ViaProxy 子进程 ----------
     // Cargo run places the executable under target/<profile>, while users
     // commonly keep ViaProxy.jar in the project working directory.
