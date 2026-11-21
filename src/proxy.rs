@@ -1,5 +1,5 @@
 ﻿use std::collections::HashMap;
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::net::{Shutdown, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
