@@ -243,8 +243,8 @@ fn main() {
 
     // ---------- 控制台 & 其他服务 ----------
     let players: Players = Arc::new(Mutex::new(HashMap::new()));
-    console::start_tcp_console(players.clone(), logger.clone());
-    console::start_stdin_console(players.clone(), logger.clone());
+    console::start_tcp_console(players.clone(), logger.clone(), running.clone());
+    console::start_stdin_console(players.clone(), logger.clone(), running.clone());
 
     if !a.no_broadcast {
         lan::start_udp_broadcast(logger.clone(), a.motd.clone(), l_port, a.lan_ip.clone());
