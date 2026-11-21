@@ -94,7 +94,7 @@ fn handle_cmd(cmd: &str, _players: &Players, logger: &Logger) -> (String, bool) 
             match parts.next() {
                 Some(player) if !player.is_empty() => {
                     let reason = parts.next().unwrap_or("由管理员操作").trim();
-                    execute(name, serde_json::json!({ "player": player, "reason": reason }), logger)
+                    execute(&name.to_ascii_lowercase(), serde_json::json!({ "player": player, "reason": reason }), logger)
                 }
                 _ => format!("[ERR] 用法: {name} <player> [reason]"),
             }
