@@ -69,6 +69,8 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
 
     private void openDatabase() {
         try {
+            // The JDBC driver is bundled inside this plugin; load it with the plugin classloader.
+            Class.forName("org.sqlite.JDBC", true, getClass().getClassLoader());
             Path directory = Path.of("plugins", "NekoGate");
             Files.createDirectories(directory);
             this.database = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("bans.sqlite3"));
