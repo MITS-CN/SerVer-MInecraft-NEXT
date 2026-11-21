@@ -31,7 +31,7 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
         try {
             ServerSocket server = new ServerSocket();
             server.setReuseAddress(true);
-            server.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), port));
+            server.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), port));
             this.serverSocket = server;
             this.running.set(true);
             Thread thread = new Thread(this::acceptLoop, "nekogate-chat-control");
