@@ -1,0 +1,10 @@
+# 构建产物
+/Log/
+/minecraft/
+/target/
+
+# 编辑器
+.vscode/
+*.swp
+*~
+

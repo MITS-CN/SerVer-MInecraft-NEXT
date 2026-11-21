@@ -1,0 +1,256 @@
+﻿use std::io::{Read, Write};
+
+use flate2::read::ZlibDecoder;
+use flate2::write::ZlibEncoder;
+use flate2::Compression;
+
+// ============================================================
+// VarInt / Packet
+// ============================================================
+
+pub fn read_varint<R: Read>(s: &mut R) -> std::io::Result<i32> {
+    let mut value: u32 = 0;
+    let mut shift: u32 = 0;
+    loop {
+        let mut b = [0u8; 1];
+        s.read_exact(&mut b)?;
+        value |= ((b[0] & 0x7F) as u32) << shift;
+        if b[0] & 0x80 == 0 {
+            return Ok(value as i32);
+        }
+        shift += 7;
+        if shift >= 35 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "VarInt too long",
+            ));
+        }
+    }
+}
+
+pub fn read_varint_slice(data: &[u8]) -> (i32, usize) {
+    let mut value: u32 = 0;
+    let mut shift: u32 = 0;
+    for (i, &b) in data.iter().enumerate() {
+        value |= ((b & 0x7F) as u32) << shift;
+        if b & 0x80 == 0 {
+            return (value as i32, i + 1);
+        }
+        shift += 7;
+        if shift >= 35 {
+            break;
+        }
+    }
+    (0, 0)
+}
+
+pub fn write_varint(value: i32) -> Vec<u8> {
+    let mut res = Vec::new();
+    let mut v = value as u32;
+    loop {
+        let mut b = (v & 0x7F) as u8;
+        v >>= 7;
+        if v != 0 {
+            b |= 0x80;
+        }
+        res.push(b);
+        if v == 0 {
+            break;
+        }
+    }
+    res
+}
+
+pub fn read_packet<R: Read>(s: &mut R) -> std::io::Result<Vec<u8>> {
+    let len = read_varint(s)?;
+    if len <= 0 {
+        return Ok(Vec::new());
+    }
+    let mut data = vec![0u8; len as usize];
+    s.read_exact(&mut data)?;
+    Ok(data)
+}
+
+/// 读包：区分「超时」和「其它错误」，外层用 Option 拿到超时分支
+pub fn read_packet_opt<R: Read>(s: &mut R) -> Result<Option<Vec<u8>>, std::io::Error> {
+    match read_packet(s) {
+        Ok(p) => Ok(Some(p)),
+        Err(e) => match e.kind() {
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => Ok(None),
+            _ => Err(e),
+        },
+    }
+}
+
+pub fn write_packet<W: Write>(s: &mut W, data: &[u8]) -> std::io::Result<()> {
+    let len = write_varint(data.len() as i32);
+    s.write_all(&len)?;
+    s.write_all(data)?;
+    s.flush()
+}
+
+pub fn wrap_packet(data: &[u8], threshold: i32) -> Vec<u8> {
+    let mut inner = Vec::new();
+    if threshold >= 0 {
+        if data.len() >= threshold as usize {
+            let mut e = ZlibEncoder::new(Vec::new(), Compression::fast());
+            let _ = e.write_all(data);
+            if let Ok(compressed) = e.finish() {
+                inner.extend(write_varint(data.len() as i32));
+                inner.extend(compressed);
+            } else {
+                inner.extend(write_varint(0));
+                inner.extend(data);
+            }
+        } else {
+            inner.extend(write_varint(0));
+            inner.extend(data);
+        }
+    } else {
+        inner.extend(data);
+    }
+    let mut out = write_varint(inner.len() as i32);
+    out.extend(inner);
+    out
+}
+
+pub fn unwrap_payload(pkt: &[u8], threshold: i32) -> Option<Vec<u8>> {
+    if threshold < 0 {
+        return Some(pkt.to_vec());
+    }
+    let (data_len, off) = read_varint_slice(pkt);
+    if data_len == 0 {
+        return Some(pkt[off..].to_vec());
+    }
+    let mut d = ZlibDecoder::new(&pkt[off..]);
+    let mut out = Vec::new();
+    d.read_to_end(&mut out).ok()?;
+    Some(out)
+}
+
+// ============================================================
+// Chat NBT
+// ============================================================
+
+fn nbt_text_compound(msg: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.push(0x0A);
+    out.extend([0u8, 0u8]);
+    out.push(0x08);
+    out.extend([0u8, 4u8]);
+    out.extend(b"text");
+    out.extend((msg.len() as u16).to_be_bytes());
+    out.extend(msg.as_bytes());
+    out.push(0x00);
+    out
+}
+
+fn escape_json(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+pub fn system_chat_id(protocol: i32) -> i32 {
+    match protocol {
+        763 => 0x62,
+        764 => 0x67,
+        765 => 0x69,
+        766 => 0x6C,
+        767 => 0x6C,
+        768 => 0x6C,
+        _ => 0x7C,
+    }
+}
+
+pub fn build_system_chat_packet(msg: &str, protocol: i32) -> Vec<u8> {
+    let mut pkt = write_varint(system_chat_id(protocol));
+    if protocol >= 765 {
+        pkt.extend(nbt_text_compound(msg));
+    } else {
+        let json = format!(r#"{{"text":"{}"}}"#, escape_json(msg));
+        pkt.extend(write_varint(json.len() as i32));
+        pkt.extend(json.as_bytes());
+    }
+    pkt.push(0);
+    pkt
+}
+
+// ============================================================
+// Handshake
+// ============================================================
+
+#[derive(Debug, Clone)]
+pub struct Handshake {
+    pub protocol: i32,
+    pub host: String,
+    pub port: u16,
+    pub next_state: i32,
+}
+
+pub fn parse_handshake(data: &[u8]) -> Option<Handshake> {
+    let (_len, mut pos) = read_varint_slice(data);
+    if pos == 0 {
+        return None;
+    }
+    let (pid, p2) = read_varint_slice(&data[pos..]);
+    if p2 == 0 {
+        return None;
+    }
+    pos += p2;
+    if pid != 0 {
+        return None;
+    }
+    let (protocol, p3) = read_varint_slice(&data[pos..]);
+    if p3 == 0 {
+        return None;
+    }
+    pos += p3;
+    let (addr_len, p4) = read_varint_slice(&data[pos..]);
+    if p4 == 0 {
+        return None;
+    }
+    pos += p4;
+    if addr_len < 0 || pos + addr_len as usize + 3 > data.len() {
+        return None;
+    }
+    let host = String::from_utf8_lossy(&data[pos..pos + addr_len as usize]).into_owned();
+    pos += addr_len as usize;
+    let port = u16::from_be_bytes([data[pos], data[pos + 1]]);
+    pos += 2;
+    let (next_state, _) = read_varint_slice(&data[pos..]);
+    Some(Handshake {
+        protocol,
+        host,
+        port,
+        next_state,
+    })
+}
+
+pub fn next_state_name(ns: i32) -> &'static str {
+    match ns {
+        1 => "状态查询",
+        2 => "登录",
+        _ => "未知",
+    }
+}
+
+// ============================================================
+// 状态
+// ============================================================
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ConnState {
+    Login,
+    Config,
+    Play,
+}

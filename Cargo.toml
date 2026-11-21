@@ -1,0 +1,11 @@
+[package]
+name = "rust-proxy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
+serde_json = "1.0"
+ctrlc = "3.4"
+
+[workspace]
