@@ -8,7 +8,8 @@ repositories {
     maven { name = 'ViaVersion'; url = 'https://repo.viaversion.com/everything' }
 }
 dependencies {
-    compileOnly('net.raphimc:ViaProxy:3.4.13') { transitive = false }
+    // 26.3 packet and NBT component types are supplied by ViaProxy 3.4.14.
+    compileOnly('net.raphimc:ViaProxy:3.4.14') { transitive = false }
 }
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
