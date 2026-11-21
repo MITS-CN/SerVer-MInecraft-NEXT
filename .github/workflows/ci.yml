@@ -24,6 +24,20 @@ jobs:
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build ViaProxy plugin
+        run: gradle -p viaproxy-plugin build
+
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
