@@ -119,16 +119,33 @@ fn main() {
     }
 
     // ---------- 启动 ViaProxy 子进程 ----------
-    let viaproxy_jar = base_dir.join("ViaProxy.jar");
-    if !viaproxy_jar.exists() {
-        logger.error(&format!("ViaProxy.jar 不存在于 {:?}，请先下载并放入该目录", viaproxy_jar));
-        std::process::exit(1);
-    }
+    // Cargo run places the executable under target/<profile>, while users
+    // commonly keep ViaProxy.jar in the project working directory.
+    let viaproxy_jar_candidates = [
+        base_dir.join("ViaProxy.jar"),
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join("ViaProxy.jar"),
+    ];
+    let viaproxy_jar = match viaproxy_jar_candidates.iter().find(|path| path.is_file()) {
+        Some(path) => path,
+        None => {
+            logger.error(&format!(
+                "ViaProxy.jar 未找到，已检查: {}",
+                viaproxy_jar_candidates
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            std::process::exit(1);
+        }
+    };
 
     let viaproxy_host = "127.0.0.1".to_string();
     let viaproxy_addr = format!("{}:{}", viaproxy_host, a.viaproxy_port);
     let viaproxy_child = match viaproxy::start_viaproxy(
-        viaproxy_jar.to_str().unwrap(),
+        viaproxy_jar.to_str().expect("ViaProxy.jar 路径不是有效的 UTF-8"),
         &viaproxy_addr,
         &t_host,
         t_port,
