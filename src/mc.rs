@@ -129,63 +129,6 @@ pub fn unwrap_payload(pkt: &[u8], threshold: i32) -> Option<Vec<u8>> {
 }
 
 // ============================================================
-// Chat NBT
-// ============================================================
-
-fn nbt_text_compound(msg: &str) -> Vec<u8> {
-    let mut out = Vec::new();
-    out.push(0x0A);
-    out.extend([0u8, 0u8]);
-    out.push(0x08);
-    out.extend([0u8, 4u8]);
-    out.extend(b"text");
-    out.extend((msg.len() as u16).to_be_bytes());
-    out.extend(msg.as_bytes());
-    out.push(0x00);
-    out
-}
-
-fn escape_json(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c => out.push(c),
-        }
-    }
-    out
-}
-
-pub fn system_chat_id(protocol: i32) -> i32 {
-    match protocol {
-        763 => 0x64,
-        764 => 0x67,
-        765 => 0x69,
-        766 => 0x6C,
-        767 => 0x6C,
-        768 => 0x6C,
-        _ => 0x7C,
-    }
-}
-
-pub fn build_system_chat_packet(msg: &str, protocol: i32) -> Vec<u8> {
-    let mut pkt = write_varint(system_chat_id(protocol));
-    if protocol >= 765 {
-        pkt.extend(nbt_text_compound(msg));
-    } else {
-        let json = format!(r#"{{"text":"{}"}}"#, escape_json(msg));
-        pkt.extend(write_varint(json.len() as i32));
-        pkt.extend(json.as_bytes());
-    }
-    pkt.push(0);
-    pkt
-}
-
-// ============================================================
 // Handshake
 // ============================================================
 
