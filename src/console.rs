@@ -12,7 +12,7 @@ fn handle_cmd(cmd: &str, players: &Players, logger: &Logger) -> (String, bool) {
         return (String::new(), false);
     }
     if let Some(msg) = cmd.strip_prefix("say ") {
-        let c = broadcast_system_chat(players, msg);
+        let c = broadcast_system_chat(players, msg, logger);
         logger.info(&format!("[Console] say \"{}\" -> {} 名玩家", msg, c));
         return (format!("[OK] 已发送给 {} 名玩家", c), false);
     }
