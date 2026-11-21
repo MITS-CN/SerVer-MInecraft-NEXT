@@ -135,11 +135,25 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
                 if (delivered) sent++; else failed++;
             } catch (Throwable e) {
                 failed++;
-                System.err.println("[NekoGateChat] Failed to inject chat for " + channel.remoteAddress() + ": " + e);
+                System.err.println("[NekoGateChat] Failed to inject chat for " + channel.remoteAddress()
+                        + " (client=" + connectionVersion(channel, true)
+                        + ", server=" + connectionVersion(channel, false) + ")");
+                e.printStackTrace(System.err);
             }
         }
         System.out.println("[NekoGateChat] say delivered=" + sent + "/" + total + " failed=" + failed);
         return new int[]{sent, total, failed};
+    }
+
+    private static String connectionVersion(Channel channel, boolean client) {
+        try {
+            ProxyConnection connection = ProxyConnection.fromChannel(channel);
+            if (connection == null) return "unknown";
+            ProtocolVersion version = client ? connection.getClientVersion() : connection.getServerVersion();
+            return version == null ? "unknown" : version.getName() + " (" + version.getVersion() + ")";
+        } catch (Throwable ignored) {
+            return "unknown";
+        }
     }
 
     private VersionedPacketTransformer<ClientboundPackets1_19_1, ?> getChatTransformer() {
