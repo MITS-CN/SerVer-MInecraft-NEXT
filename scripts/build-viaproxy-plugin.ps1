@@ -4,7 +4,15 @@ $sha256 = 'a17ddd85a26b6a7f5ddb71ff8b05fc5104c0202c6e64782429790c933686c806'
 $root = Split-Path -Parent $PSScriptRoot
 
 # Prefer a Gradle installation already available on PATH.
-$systemGradle = Get-Command gradle -CommandType Application -ErrorAction SilentlyContinue
+# Select one command explicitly: Get-Command may return both gradle.bat
+# and the extensionless Unix launcher from a Gradle distribution.
+$systemGradle = Get-Command gradle.bat -CommandType Application -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+if (-not $systemGradle) {
+    $systemGradle = Get-Command gradle -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+}
+
 if ($systemGradle) {
     $gradle = $systemGradle.Source
     Write-Host "[ViaProxy] Using system Gradle: $gradle"
