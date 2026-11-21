@@ -5,6 +5,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFutureListener;
 import net.raphimc.netminecraft.constants.ConnectionState;
 import net.raphimc.netminecraft.constants.MCPackets;
+import net.raphimc.netminecraft.constants.MCVersion;
 import net.raphimc.netminecraft.constants.PacketDirection;
 import net.raphimc.netminecraft.packet.Packet;
 import net.raphimc.netminecraft.packet.PacketTypes;
@@ -14,21 +15,15 @@ import net.raphimc.viaproxy.proxy.session.ProxyConnection;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Observes player activity and movement without changing or cancelling packets.
  */
 final class PlayerActivityPacketHandler extends PacketHandler {
-    private static final Pattern DIMENSION_KEY =
-            Pattern.compile("[a-z0-9_.-]+:[a-z0-9_./-]+");
-
     private final PlayerActivityLogger logger;
     private final AtomicBoolean joined = new AtomicBoolean();
     private final AtomicBoolean joinLogged = new AtomicBoolean();
@@ -100,7 +95,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                     unknown.packetId
             );
             if (type == MCPackets.S2C_LOGIN || type == MCPackets.S2C_RESPAWN) {
-                updateDimension(extractDimension(unknown.data));
+                updateDimension(extractDimension(type, unknown.data, this.proxyConnection.getServerVersion().getVersion()));
             }
         }
 
@@ -133,7 +128,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             ByteBuf buffer = Unpooled.wrappedBuffer(data);
             String value;
             try {
-                value = PacketTypes.readString(buffer, 256);
+                value = PacketTypes.readString(buffer, 32767);
             } finally {
                 buffer.release();
             }
@@ -210,13 +205,35 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         }
     }
 
-    private static String extractDimension(byte[] data) {
-        if (data == null || data.length == 0) return null;
-        String payload = new String(data, StandardCharsets.ISO_8859_1);
-        Matcher matcher = DIMENSION_KEY.matcher(payload);
-        while (matcher.find()) {
-            String key = matcher.group();
-            if (key.startsWith("minecraft:") || key.indexOf(':') > 0) return key;
+    private static String extractDimension(MCPackets type, byte[] data, int protocolVersion) {
+        if (data == null || data.length == 0 || protocolVersion < MCVersion.v1_20_2) return null;
+        ByteBuf buffer = Unpooled.wrappedBuffer(data);
+        try {
+            if (type == MCPackets.S2C_LOGIN) {
+                buffer.readInt(); // Entity ID
+                buffer.readBoolean(); // Hardcore
+                int dimensionCount = PacketTypes.readVarInt(buffer);
+                if (dimensionCount < 0 || dimensionCount > 4096) return null;
+                for (int i = 0; i < dimensionCount; i++) {
+                    PacketTypes.readString(buffer, 32767);
+                }
+                PacketTypes.readVarInt(buffer); // Max players
+                PacketTypes.readVarInt(buffer); // View distance
+                PacketTypes.readVarInt(buffer); // Simulation distance
+                buffer.readBoolean(); // Reduced debug info
+                buffer.readBoolean(); // Show respawn screen
+                buffer.readBoolean(); // Do limited crafting
+                PacketTypes.readVarInt(buffer); // Dimension type
+                return PacketTypes.readString(buffer, 32767); // Current dimension identifier
+            }
+            if (type == MCPackets.S2C_RESPAWN) {
+                PacketTypes.readVarInt(buffer); // Dimension type
+                return PacketTypes.readString(buffer, 32767); // Current dimension identifier
+            }
+        } catch (RuntimeException ignored) {
+            // Older or non-standard packet layouts are left without a dimension value.
+        } finally {
+            buffer.release();
         }
         return null;
     }
