@@ -2,7 +2,9 @@
 use std::fs::{File, OpenOptions};
 use std::path::Path;
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::mpsc::{self, Sender};
 use std::sync::Mutex;
+use std::thread;
 
 use serde_json::Value;
 
@@ -131,7 +133,7 @@ pub struct Logger {
     keyword_faces: Vec<(Vec<String>, Vec<String>)>,
     texts: TextsData,
     pool_idx: Mutex<HashMap<String, usize>>,
-    file: Mutex<Option<File>>,
+    log_tx: Sender<LogRecord>,
     level: AtomicU8,
 }
 
@@ -156,12 +158,26 @@ impl Logger {
             None
         };
 
+        let (log_tx, log_rx) = mpsc::channel::<LogRecord>();
+        thread::Builder::new().name("nekoproxy-logger".to_string()).spawn(move || {
+            let mut file = file;
+            while let Ok(record) = log_rx.recv() {
+                use std::io::Write;
+                let _ = std::io::stdout().write_all(record.line.as_bytes());
+                let _ = std::io::stdout().flush();
+                if let Some(output) = file.as_mut() {
+                    let _ = output.write_all(record.line.as_bytes());
+                    let _ = output.flush();
+                }
+            }
+        }).expect("无法启动异步日志线程");
+
         Logger {
             level_names,
             keyword_faces,
             texts,
             pool_idx: Mutex::new(HashMap::new()),
-            file: Mutex::new(file),
+            log_tx,
             level: AtomicU8::new(min_level),
         }
     }
