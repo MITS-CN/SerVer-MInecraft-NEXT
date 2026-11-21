@@ -14,7 +14,6 @@ import io.netty.channel.Channel;
 import net.raphimc.netminecraft.constants.ConnectionState;
 import net.raphimc.viaproxy.ViaProxy;
 import net.raphimc.viaproxy.plugins.ViaProxyPlugin;
-import net.raphimc.viaproxy.plugins.events.ClientLoggedInEvent;
 import net.raphimc.viaproxy.plugins.events.ConnectEvent;
 import net.lenni0451.lambdaevents.EventHandler;
 import net.raphimc.viaproxy.proxy.session.ProxyConnection;
@@ -428,11 +427,6 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
             connection.getC2P().closeFuture().addListener(future -> handler.onDisconnect());
         }
 
-        @EventHandler
-        public void onClientLoggedIn(ClientLoggedInEvent event) {
-            // The actual join is recorded after the backend sends its login-success packet.
-            // This event intentionally does not create a join entry by itself.
-        }
     }
 
 }
