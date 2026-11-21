@@ -48,13 +48,3 @@ pub fn stop_viaproxy(mut child: Child, logger: Arc<Logger>) {
     let _ = child.wait();
     logger.info("[ViaProxy] 已关闭");
 }
-
-/// 一个 Drop guard，用于在 main 函数意外退出时自动杀死子进程
-pub struct ViaProxyGuard(pub Child);
-
-impl Drop for ViaProxyGuard {
-    fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}

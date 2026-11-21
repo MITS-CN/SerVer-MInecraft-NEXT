@@ -168,9 +168,6 @@ impl Logger {
         &self.texts
     }
 
-    pub fn set_level(&self, l: u8) {
-        self.level.store(l, Ordering::Relaxed);
-    }
 
     fn log(&self, level: u8, msg: &str) {
         if level < self.level.load(Ordering::Relaxed) {
