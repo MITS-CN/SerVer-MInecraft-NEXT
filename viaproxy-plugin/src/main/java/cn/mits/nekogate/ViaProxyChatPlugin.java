@@ -134,7 +134,15 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
                     packet.write(Types.TAG, component);
                     packet.write(Types.BOOLEAN, false);
                 });
-                if (delivered) sent++; else failed++;
+                if (delivered) {
+                    sent++;
+                } else {
+                    failed++;
+                    System.err.println("[NekoGateChat] ViaVersion rejected SYSTEM_CHAT scheduling for "
+                            + channel.remoteAddress()
+                            + " (client=" + connectionVersion(channel, true)
+                            + ", server=" + connectionVersion(channel, false) + ")");
+                }
             } catch (Throwable e) {
                 failed++;
                 System.err.println("[NekoGateChat] Failed to inject chat for " + channel.remoteAddress()
