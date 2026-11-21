@@ -14,6 +14,9 @@ import io.netty.channel.Channel;
 import net.raphimc.netminecraft.constants.ConnectionState;
 import net.raphimc.viaproxy.ViaProxy;
 import net.raphimc.viaproxy.plugins.ViaProxyPlugin;
+import net.raphimc.viaproxy.plugins.events.ClientLoggedInEvent;
+import net.raphimc.viaproxy.plugins.events.ConnectEvent;
+import net.lenni0451.lambdaevents.EventHandler;
 import net.raphimc.viaproxy.proxy.session.ProxyConnection;
 
 import java.io.*;
@@ -35,9 +38,12 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
     private volatile VersionedPacketTransformer<ClientboundPackets26_3, ?> chatTransformer;
     private volatile Connection database;
     private final Object databaseLock = new Object();
+    private volatile PlayerActivityLogger activityLogger;
 
     @Override
     public void onEnable() {
+        this.activityLogger = new PlayerActivityLogger(Path.of("plugins", "NekoGate"));
+        ViaProxy.EVENT_MANAGER.register(new ActivityListener());
         openDatabase();
         int port = readPort();
         try {
@@ -410,4 +416,23 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
         }
         return current;
     }
+    private final class ActivityListener {
+        @EventHandler
+        public void onConnect(ConnectEvent event) {
+            PlayerActivityLogger logger = activityLogger;
+            if (logger == null || !logger.isEnabled()) return;
+
+            ProxyConnection connection = event.getProxyConnection();
+            PlayerActivityPacketHandler handler = new PlayerActivityPacketHandler(logger, connection);
+            connection.getPacketHandlers().add(handler);
+            connection.getC2P().closeFuture().addListener(future -> handler.onDisconnect());
+        }
+
+        @EventHandler
+        public void onClientLoggedIn(ClientLoggedInEvent event) {
+            // The actual join is recorded after the backend sends its login-success packet.
+            // This event intentionally does not create a join entry by itself.
+        }
+    }
+
 }
