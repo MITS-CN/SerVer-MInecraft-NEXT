@@ -7,7 +7,7 @@ import com.viaversion.viaversion.api.connection.UserConnection;
 import com.viaversion.viaversion.api.protocol.packet.VersionedPacketTransformer;
 import com.viaversion.viaversion.api.protocol.version.ProtocolVersion;
 import com.viaversion.viaversion.api.type.Types;
-import com.viaversion.viaversion.protocols.v1_19to1_19_1.packet.ClientboundPackets1_19_1;
+import com.viaversion.viaversion.protocols.v26_2to26_3.packet.ClientboundPackets26_3;
 import io.netty.channel.Channel;
 import net.raphimc.netminecraft.constants.ConnectionState;
 import net.raphimc.viaproxy.ViaProxy;
@@ -23,7 +23,7 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
     private static final int DEFAULT_PORT = 25626;
     private final AtomicBoolean running = new AtomicBoolean();
     private volatile ServerSocket serverSocket;
-    private volatile VersionedPacketTransformer<ClientboundPackets1_19_1, ?> chatTransformer;
+    private volatile VersionedPacketTransformer<ClientboundPackets26_3, ?> chatTransformer;
 
     @Override
     public void onEnable() {
@@ -112,7 +112,7 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
     }
 
     private int[] broadcast(String message) {
-        VersionedPacketTransformer<ClientboundPackets1_19_1, ?> transformer = getChatTransformer();
+        VersionedPacketTransformer<ClientboundPackets26_3, ?> transformer = getChatTransformer();
         JsonObject component = new JsonObject();
         component.addProperty("text", message);
         int total = 0, sent = 0, failed = 0;
@@ -128,27 +128,41 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
                 if (user == null) continue;
 
                 total++;
-                boolean delivered = transformer.scheduleSend(user, ClientboundPackets1_19_1.SYSTEM_CHAT, packet -> {
+                boolean delivered = transformer.scheduleSend(user, ClientboundPackets26_3.SYSTEM_CHAT, packet -> {
                     packet.write(Types.COMPONENT, (com.viaversion.viaversion.libs.gson.JsonElement) component.deepCopy());
                     packet.write(Types.BOOLEAN, false);
                 });
                 if (delivered) sent++; else failed++;
             } catch (Throwable e) {
                 failed++;
-                System.err.println("[NekoGateChat] Failed to inject chat for " + channel.remoteAddress() + ": " + e);
+                System.err.println("[NekoGateChat] Failed to inject chat for " + channel.remoteAddress()
+                        + " (client=" + connectionVersion(channel, true)
+                        + ", server=" + connectionVersion(channel, false) + ")");
+                e.printStackTrace(System.err);
             }
         }
         System.out.println("[NekoGateChat] say delivered=" + sent + "/" + total + " failed=" + failed);
         return new int[]{sent, total, failed};
     }
 
-    private VersionedPacketTransformer<ClientboundPackets1_19_1, ?> getChatTransformer() {
-        VersionedPacketTransformer<ClientboundPackets1_19_1, ?> current = this.chatTransformer;
+    private static String connectionVersion(Channel channel, boolean client) {
+        try {
+            ProxyConnection connection = ProxyConnection.fromChannel(channel);
+            if (connection == null) return "unknown";
+            ProtocolVersion version = client ? connection.getClientVersion() : connection.getServerVersion();
+            return version == null ? "unknown" : version.getName() + " (" + version.getVersion() + ")";
+        } catch (Throwable ignored) {
+            return "unknown";
+        }
+    }
+
+    private VersionedPacketTransformer<ClientboundPackets26_3, ?> getChatTransformer() {
+        VersionedPacketTransformer<ClientboundPackets26_3, ?> current = this.chatTransformer;
         if (current == null) synchronized (this) {
             current = this.chatTransformer;
             if (current == null) {
                 current = Via.getManager().getProtocolManager().createPacketTransformer(
-                        ProtocolVersion.v1_19_1, ClientboundPackets1_19_1.class, null);
+                        ProtocolVersion.v26_3, ClientboundPackets26_3.class, null);
                 this.chatTransformer = current;
             }
         }
