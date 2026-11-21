@@ -197,37 +197,40 @@ pub struct Handshake {
     pub next_state: i32,
 }
 
+/// Parse the handshake packet payload (the outer packet-length VarInt
+/// has already been consumed by read_packet).
 pub fn parse_handshake(data: &[u8]) -> Option<Handshake> {
-    let (_len, mut pos) = read_varint_slice(data);
-    if pos == 0 {
+    let (pid, mut pos) = read_varint_slice(data);
+    if pos == 0 || pid != 0 {
         return None;
     }
-    let (pid, p2) = read_varint_slice(&data[pos..]);
-    if p2 == 0 {
+
+    let (protocol, consumed) = read_varint_slice(&data[pos..]);
+    if consumed == 0 {
         return None;
     }
-    pos += p2;
-    if pid != 0 {
+    pos += consumed;
+
+    let (addr_len, consumed) = read_varint_slice(&data[pos..]);
+    if consumed == 0 || addr_len < 0 {
         return None;
     }
-    let (protocol, p3) = read_varint_slice(&data[pos..]);
-    if p3 == 0 {
+    pos += consumed;
+
+    let host_len = addr_len as usize;
+    let host_end = pos.checked_add(host_len)?;
+    let port_end = host_end.checked_add(2)?;
+    if port_end > data.len() {
         return None;
     }
-    pos += p3;
-    let (addr_len, p4) = read_varint_slice(&data[pos..]);
-    if p4 == 0 {
+
+    let host = String::from_utf8_lossy(&data[pos..host_end]).into_owned();
+    let port = u16::from_be_bytes([data[host_end], data[host_end + 1]]);
+    let (next_state, consumed) = read_varint_slice(&data[port_end..]);
+    if consumed == 0 {
         return None;
     }
-    pos += p4;
-    if addr_len < 0 || pos + addr_len as usize + 3 > data.len() {
-        return None;
-    }
-    let host = String::from_utf8_lossy(&data[pos..pos + addr_len as usize]).into_owned();
-    pos += addr_len as usize;
-    let port = u16::from_be_bytes([data[pos], data[pos + 1]]);
-    pos += 2;
-    let (next_state, _) = read_varint_slice(&data[pos..]);
+
     Some(Handshake {
         protocol,
         host,
@@ -253,4 +256,34 @@ pub enum ConnState {
     Login,
     Config,
     Play,
+}
+
+#[cfg(test)]
+mod handshake_tests {
+    use super::*;
+
+    #[test]
+    fn parses_handshake_payload_without_frame_length() {
+        // Packet ID 0, protocol 765, host "localhost", port 25565, login state 2.
+        let payload = [
+            0x00, 0xFD, 0x05, 0x09, b'l', b'o', b'c', b'a', b'l', b'h', b'o', b's', b't',
+            0x63, 0xDD, 0x02,
+        ];
+
+        let handshake = parse_handshake(&payload).expect("valid handshake");
+        assert_eq!(handshake.protocol, 765);
+        assert_eq!(handshake.host, "localhost");
+        assert_eq!(handshake.port, 25565);
+        assert_eq!(handshake.next_state, 2);
+    }
+
+    #[test]
+    fn rejects_non_handshake_packet_id() {
+        assert!(parse_handshake(&[0x01, 0x00, 0x00]).is_none());
+    }
+
+    #[test]
+    fn rejects_truncated_handshake_payload() {
+        assert!(parse_handshake(&[0x00, 0xFD, 0x05, 0x09, b'l']).is_none());
+    }
 }
