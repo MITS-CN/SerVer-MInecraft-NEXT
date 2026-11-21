@@ -136,39 +136,36 @@ fn main() {
     // Build the plugin on first launch so a fresh clone can start with one command.
     if !plugin_candidates.iter().any(|path| path.is_file()) {
         logger.info("[ViaProxy] 未找到聊天插件，正在自动构建 viaproxy-plugin...");
+        // Inherit the console streams instead of buffering them. This keeps Gradle's
+        // progress visible and, crucially, ensures startup failures are not hidden
+        // when the asynchronous logger thread is stopped by an early return.
         #[cfg(windows)]
         let build_result = std::process::Command::new("cmd")
             .args(["/C", "gradle", "-p", "viaproxy-plugin", "build"])
             .current_dir(&cwd)
-            .output();
+            .status();
         #[cfg(not(windows))]
         let build_result = std::process::Command::new("gradle")
             .args(["-p", "viaproxy-plugin", "build"])
             .current_dir(&cwd)
-            .output();
+            .status();
 
         match build_result {
-            Ok(output) => {
-                for line in String::from_utf8_lossy(&output.stdout).lines() {
-                    logger.info(&format!("[Gradle] {}", line));
-                }
-                for line in String::from_utf8_lossy(&output.stderr).lines() {
-                    if output.status.success() {
-                        logger.warn(&format!("[Gradle] {}", line));
-                    } else {
-                        logger.error(&format!("[Gradle] {}", line));
-                    }
-                }
-                if !output.status.success() {
-                    logger.error(&format!("[ViaProxy] 插件构建失败，Gradle 退出状态: {}", output.status));
-                    return;
-                }
+            Ok(status) if status.success() => {
+                println!("[ViaProxy] Gradle 插件构建成功。");
+            }
+            Ok(status) => {
+                eprintln!(
+                    "[ViaProxy] 插件构建失败，Gradle 退出状态: {}。请检查上方 Gradle 输出。",
+                    status
+                );
+                return;
             }
             Err(e) => {
-                logger.error(&format!(
+                eprintln!(
                     "[ViaProxy] 无法执行 Gradle 自动构建: {}。请安装 Gradle 并确保 gradle 在 PATH 中。",
                     e
-                ));
+                );
                 return;
             }
         }
