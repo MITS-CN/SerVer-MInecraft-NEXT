@@ -331,7 +331,7 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
                         ProxyConnection connection = connection(channel);
                         if (connection == null || connection.getGameProfile() == null) return false;
                         var profile = connection.getGameProfile();
-                        return key.equals(profile.getId() == null ? profile.getName().toLowerCase() : profile.getId().toString());
+                        return profile.getName() != null && key.equals(profile.getId() == null ? profile.getName().toLowerCase() : profile.getId().toString());
                     }));
             try { Thread.sleep(250L); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
         }
@@ -365,8 +365,6 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
         return profile != null && profile.getName() != null && profile.getName().equalsIgnoreCase(target);
     }
 
-    private boolean[] unused() { return new boolean[0]; }
-
     private int[] broadcast(String message) {
         int total = 0, sent = 0, failed = 0;
         for (Channel channel : ViaProxy.getConnectedClients()) {
@@ -382,6 +380,8 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
 
     private boolean sendChat(ProxyConnection connection, String message) {
         try {
+            if (connection.getC2pConnectionState() != ConnectionState.PLAY
+                    || connection.getP2sConnectionState() != ConnectionState.PLAY) return false;
             UserConnection user = connection.getUserConnection();
             if (user == null) return false;
             CompoundTag component = new CompoundTag();
