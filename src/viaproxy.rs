@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::logger::Logger;
-use crate::util::pick_text;
 
 /// 启动 ViaProxy 子进程
 pub fn start_viaproxy(

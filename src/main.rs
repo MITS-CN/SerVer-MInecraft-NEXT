@@ -125,7 +125,8 @@ fn main() {
         std::process::exit(1);
     }
 
-    let viaproxy_addr = format!("127.0.0.1:{}", a.viaproxy_port);
+    let viaproxy_host = "127.0.0.1".to_string();
+    let viaproxy_addr = format!("{}:{}", viaproxy_host, a.viaproxy_port);
     let viaproxy_child = match viaproxy::start_viaproxy(
         viaproxy_jar.to_str().unwrap(),
         &viaproxy_addr,
@@ -174,11 +175,12 @@ fn main() {
     while running.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((client, _)) => {
-                let viaproxy_addr = viaproxy_addr.clone();
+                let viaproxy_host = viaproxy_host.clone();
+                let viaproxy_port = a.viaproxy_port;
                 let players = players.clone();
                 let logger = logger.clone();
                 std::thread::spawn(move || {
-                    proxy::handle_client(client, viaproxy_addr, players, logger);
+                    proxy::handle_client(client, viaproxy_host, viaproxy_port, players, logger);
                 });
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
