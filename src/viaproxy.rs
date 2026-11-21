@@ -28,7 +28,7 @@ pub fn start_viaproxy(
         .arg("--target-address")
         .arg(&target_addr)
         .arg("--auth-method")
-        .arg("none")
+        .arg("NONE")
         .arg("--proxy-online-mode")
         .arg("false")
         .arg("--ignore-protocol-translation-errors")
