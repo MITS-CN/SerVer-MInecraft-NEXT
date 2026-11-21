@@ -133,11 +133,52 @@ fn main() {
         cwd.join("viaproxy-plugin").join("build").join("libs").join("nekogate-viaproxy-plugin.jar"),
         base_dir.join("viaproxy-plugin").join("build").join("libs").join("nekogate-viaproxy-plugin.jar"),
     ];
+    // Build the plugin on first launch so a fresh clone can start with one command.
+    if !plugin_candidates.iter().any(|path| path.is_file()) {
+        logger.info("[ViaProxy] 未找到聊天插件，正在自动构建 viaproxy-plugin...");
+        #[cfg(windows)]
+        let build_result = std::process::Command::new("cmd")
+            .args(["/C", "gradle", "-p", "viaproxy-plugin", "build"])
+            .current_dir(&cwd)
+            .output();
+        #[cfg(not(windows))]
+        let build_result = std::process::Command::new("gradle")
+            .args(["-p", "viaproxy-plugin", "build"])
+            .current_dir(&cwd)
+            .output();
+
+        match build_result {
+            Ok(output) => {
+                for line in String::from_utf8_lossy(&output.stdout).lines() {
+                    logger.info(&format!("[Gradle] {}", line));
+                }
+                for line in String::from_utf8_lossy(&output.stderr).lines() {
+                    if output.status.success() {
+                        logger.warn(&format!("[Gradle] {}", line));
+                    } else {
+                        logger.error(&format!("[Gradle] {}", line));
+                    }
+                }
+                if !output.status.success() {
+                    logger.error(&format!("[ViaProxy] 插件构建失败，Gradle 退出状态: {}", output.status));
+                    return;
+                }
+            }
+            Err(e) => {
+                logger.error(&format!(
+                    "[ViaProxy] 无法执行 Gradle 自动构建: {}。请安装 Gradle 并确保 gradle 在 PATH 中。",
+                    e
+                ));
+                return;
+            }
+        }
+    }
+
     let plugin_jar = match plugin_candidates.iter().find(|path| path.is_file()) {
         Some(path) => path,
         None => {
             logger.error(&format!(
-                "ViaProxy 聊天插件未构建。请先运行: gradle -p viaproxy-plugin build；检查位置: {}",
+                "[ViaProxy] Gradle 构建完成但插件 JAR 仍不存在，检查位置: {}",
                 plugin_candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
             ));
             return;
@@ -159,16 +200,16 @@ fn main() {
     // Cargo run places the executable under target/<profile>, while users
     // commonly keep ViaProxy.jar in the project working directory.
     let viaproxy_jar_candidates = [
+        cwd.join("ViaProxy.jar"),
+        cwd.join("ViaProxy-3.4.14.jar"),
         base_dir.join("ViaProxy.jar"),
-        std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join("ViaProxy.jar"),
+        base_dir.join("ViaProxy-3.4.14.jar"),
     ];
     let viaproxy_jar = match viaproxy_jar_candidates.iter().find(|path| path.is_file()) {
         Some(path) => path,
         None => {
             logger.error(&format!(
-                "ViaProxy.jar 未找到，已检查: {}",
+                "ViaProxy JAR 未找到（支持 ViaProxy.jar 和 ViaProxy-3.4.14.jar），已检查: {}",
                 viaproxy_jar_candidates
                     .iter()
                     .map(|path| path.display().to_string())
