@@ -138,6 +138,10 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                     PacketTypes.readVarInt(buffer);
                 }
                 UUID sender = PacketTypes.readUuid(buffer);
+                // The sender's own connection is already covered by the client-to-proxy chat log.
+                // Another tunnel client's connection can still observe and record this broadcast.
+                String receivingPlayerUuid = playerUuid();
+                if (sender.toString().equalsIgnoreCase(receivingPlayerUuid == null ? "" : receivingPlayerUuid)) return;
                 PacketTypes.readVarInt(buffer); // Sender message index
                 if (buffer.readBoolean()) {
                     buffer.skipBytes(256); // Optional message signature
