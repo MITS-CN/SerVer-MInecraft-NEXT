@@ -1,0 +1,5 @@
+name: "NekoGateChat"
+version: "1.0.0"
+author: "MITS-CN"
+main: "cn.mits.nekogate.ViaProxyChatPlugin"
+min-version: "3.4.0"
