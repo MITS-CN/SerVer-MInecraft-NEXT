@@ -161,12 +161,13 @@ ViaProxy 插件首次启动时会生成 `plugins/NekoGate/config.properties`。�
 ```properties
 logging.enabled=false
 logging.chat=true
+logging.server_chat=true
 logging.commands=true
 logging.connections=true
 logging.locations=true
 ```
 
-将 `logging.enabled` 改为 `true` 并重启代理即可启用。聊天内容、玩家指令、上下线事件和游戏内位置可以分别控制。日志写入 `plugins/NekoGate/player-activity.jsonl`，每行是一条独立的 JSON 事件，采用追加写入，重启后继续累计。
+将 `logging.enabled` 改为 `true` 并重启代理即可启用。隧道玩家自己发送的聊天、后端广播给隧道玩家的其他玩家聊天、玩家指令、上下线事件和游戏内位置可以分别控制。`logging.server_chat` 默认开启：只要至少一名隧道玩家在线，就从后端发往隧道客户端的玩家聊天数据包中记录其他玩家的消息；多名隧道玩家同时在线时会去重，避免同一条广播重复写入。后端聊天记录包含发送者 UUID、原始消息和消息时间戳。日志写入 `plugins/NekoGate/player-activity.jsonl`，每行是一条独立的 JSON 事件，采用追加写入，重启后继续累计。
 
 上线和下线事件会尽可能包含玩家最后观测到的维度、X/Y/Z 坐标及朝向（Yaw/Pitch）；维度切换会单独生成 `dimension_change` 事件。坐标来自玩家移动数据包，初次上线位置可能要等客户端发出第一条移动数据后才可用；若协议包未提供可识别的位置或维度，相关字段会缺省，而不会伪造数据。位置日志只保存上线、下线和维度切换节点，不会把每次移动都写入文件。
 
