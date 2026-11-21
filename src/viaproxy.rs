@@ -15,7 +15,7 @@ pub fn start_viaproxy(
 ) -> std::io::Result<Child> {
     let target_addr = format!("{}:{}", target_host, target_port);
     logger.info(&format!(
-        "[ViaProxy] 正在启动: java -jar {} cli --bind-address {} --backend-address {}",
+        "[ViaProxy] 正在启动: java -jar {} cli --bind-address {} --target-address {}",
         jar_path, bind_addr, target_addr
     ));
 
@@ -25,11 +25,11 @@ pub fn start_viaproxy(
         .arg("cli")
         .arg("--bind-address")
         .arg(bind_addr)
-        .arg("--backend-address")
+        .arg("--target-address")
         .arg(&target_addr)
         .arg("--auth-method")
         .arg("none")
-        .arg("--frontend-online-mode")
+        .arg("--proxy-online-mode")
         .arg("false")
         .arg("--ignore-protocol-translation-errors")
         .arg("true")
