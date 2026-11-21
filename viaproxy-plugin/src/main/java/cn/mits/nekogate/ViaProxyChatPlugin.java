@@ -129,7 +129,7 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
 
                 total++;
                 boolean delivered = transformer.scheduleSend(user, ClientboundPackets1_19_1.SYSTEM_CHAT, packet -> {
-                    packet.write(Types.COMPONENT, component.deepCopy());
+                    packet.write(Types.COMPONENT, (com.google.gson.JsonElement) component.deepCopy());
                     packet.write(Types.BOOLEAN, false);
                 });
                 if (delivered) sent++; else failed++;
