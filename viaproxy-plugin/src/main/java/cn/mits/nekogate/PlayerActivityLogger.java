@@ -20,6 +20,7 @@ final class PlayerActivityLogger {
     private final boolean logChat;
     private final boolean logCommands;
     private final boolean logConnections;
+    private final boolean logLocations;
     private final Object writeLock = new Object();
 
     PlayerActivityLogger(Path directory) {
@@ -37,6 +38,7 @@ final class PlayerActivityLogger {
                     logging.chat=true
                     logging.commands=true
                     logging.connections=true
+                    logging.locations=true
                     """, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
             }
             try (var reader = Files.newBufferedReader(configFile, StandardCharsets.UTF_8)) {
@@ -50,6 +52,7 @@ final class PlayerActivityLogger {
         this.logChat = Boolean.parseBoolean(config.getProperty("logging.chat", "true"));
         this.logCommands = Boolean.parseBoolean(config.getProperty("logging.commands", "true"));
         this.logConnections = Boolean.parseBoolean(config.getProperty("logging.connections", "true"));
+        this.logLocations = Boolean.parseBoolean(config.getProperty("logging.locations", "true"));
 
         if (this.enabled) {
             System.out.println("[NekoGate] Player activity logging enabled: " + this.logFile);
@@ -62,19 +65,37 @@ final class PlayerActivityLogger {
         return this.enabled;
     }
 
-    void logJoin(String player, String uuid, Instant joinedAt) {
+    boolean isLocationLoggingEnabled() {
+        return this.enabled && this.logLocations;
+    }
+
+    void logJoin(String player, String uuid, Instant joinedAt, String dimension,
+                 Double x, Double y, Double z, Float yaw, Float pitch) {
         if (!this.enabled || !this.logConnections) return;
         JsonObject event = event("join", player, uuid);
         event.addProperty("joined_at", joinedAt.toString());
+        addLocation(event, dimension, x, y, z, yaw, pitch);
         append(event);
     }
 
-    void logLeave(String player, String uuid, Instant joinedAt, Instant leftAt) {
+    void logLeave(String player, String uuid, Instant joinedAt, Instant leftAt, String dimension,
+                  Double x, Double y, Double z, Float yaw, Float pitch) {
         if (!this.enabled || !this.logConnections) return;
         JsonObject event = event("leave", player, uuid);
         event.addProperty("joined_at", joinedAt.toString());
         event.addProperty("left_at", leftAt.toString());
         event.addProperty("online_seconds", Math.max(0, leftAt.getEpochSecond() - joinedAt.getEpochSecond()));
+        addLocation(event, dimension, x, y, z, yaw, pitch);
+        append(event);
+    }
+
+    void logDimensionChange(String player, String uuid, String previousDimension, String dimension,
+                            Double x, Double y, Double z, Float yaw, Float pitch) {
+        if (!isLocationLoggingEnabled()) return;
+        JsonObject event = event("dimension_change", player, uuid);
+        event.addProperty("previous_dimension", previousDimension);
+        event.addProperty("dimension", dimension);
+        addCoordinates(event, x, y, z, yaw, pitch);
         append(event);
     }
 
@@ -99,6 +120,20 @@ final class PlayerActivityLogger {
         event.addProperty("player", player);
         if (uuid != null) event.addProperty("uuid", uuid);
         return event;
+    }
+
+    private static void addLocation(JsonObject event, String dimension, Double x, Double y, Double z,
+                                    Float yaw, Float pitch) {
+        if (dimension != null) event.addProperty("dimension", dimension);
+        addCoordinates(event, x, y, z, yaw, pitch);
+    }
+
+    private static void addCoordinates(JsonObject event, Double x, Double y, Double z, Float yaw, Float pitch) {
+        if (x != null) event.addProperty("x", x);
+        if (y != null) event.addProperty("y", y);
+        if (z != null) event.addProperty("z", z);
+        if (yaw != null) event.addProperty("yaw", yaw);
+        if (pitch != null) event.addProperty("pitch", pitch);
     }
 
     private void append(JsonObject event) {
