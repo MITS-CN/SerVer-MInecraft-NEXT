@@ -1,5 +1,6 @@
 package cn.mits.nekogate;
 
+import com.viaversion.nbt.tag.CompoundTag;
 import com.viaversion.viaversion.libs.gson.JsonObject;
 import com.viaversion.viaversion.libs.gson.JsonParser;
 import com.viaversion.viaversion.api.Via;
@@ -113,8 +114,8 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
 
     private int[] broadcast(String message) {
         VersionedPacketTransformer<ClientboundPackets26_3, ?> transformer = getChatTransformer();
-        JsonObject component = new JsonObject();
-        component.addProperty("text", message);
+        CompoundTag component = new CompoundTag();
+        component.putString("text", message);
         int total = 0, sent = 0, failed = 0;
 
         for (Channel channel : ViaProxy.getConnectedClients()) {
@@ -129,7 +130,8 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
 
                 total++;
                 boolean delivered = transformer.scheduleSend(user, ClientboundPackets26_3.SYSTEM_CHAT, packet -> {
-                    packet.write(Types.COMPONENT, (com.viaversion.viaversion.libs.gson.JsonElement) component.deepCopy());
+                    // Minecraft 26.3 encodes text components as NBT tags, not JSON components.
+                    packet.write(Types.TAG, component);
                     packet.write(Types.BOOLEAN, false);
                 });
                 if (delivered) sent++; else failed++;
