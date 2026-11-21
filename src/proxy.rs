@@ -78,6 +78,15 @@ pub fn handle_client(
     players: Players,
     logger: Arc<Logger>,
 ) {
+    // The listener is nonblocking for accept(); explicitly make each accepted
+    // client stream blocking before handing it to the packet-reading threads.
+    // On Windows an accepted socket can otherwise surface WSAEWOULDBLOCK
+    // when no packet is immediately available, which must not mean disconnect.
+    if let Err(e) = client.set_nonblocking(false) {
+        logger.error(&format!("无法将客户端套接字设为阻塞模式: {}", e));
+        return;
+    }
+
     let total = TOTAL_CONNECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
     let active = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
     let conn_id = format!("#{}", total);
