@@ -4,25 +4,21 @@
 
 - Rust stable toolchain
 - JDK 17 or newer
-- Gradle (the ViaProxy plugin is built separately from the Rust executable)
-- A ViaProxy JAR named `ViaProxy.jar` in the project working directory
+- Gradle 8.x or newer available as `gradle` on PATH
+- A ViaProxy JAR in the project working directory (either `ViaProxy.jar` or `ViaProxy-3.4.14.jar`)
 
-## First build
+## Build and run
 
 From the repository root in PowerShell:
 
 ```powershell
-gradle -p viaproxy-plugin clean build
 cargo build --release
-```
-
-Then start the proxy as usual:
-
-```powershell
 cargo run --release -- --log-level DEBUG
 ```
 
-NekoGate installs `viaproxy-plugin/build/libs/nekogate-viaproxy-plugin.jar` into the ViaProxy working directory's `plugins` folder before launching ViaProxy. The plugin exposes a loopback-only control socket on port 25626; it is not reachable from the LAN.
+On first launch, NekoGate automatically runs `gradle -p viaproxy-plugin build` when the plugin JAR is missing, then copies the built plugin into the ViaProxy `plugins` directory. You no longer need to build the plugin manually. Gradle and JDK 17+ must be installed and available on PATH.
+
+The plugin exposes a loopback-only control socket on port 25626; it is not reachable from the LAN.
 
 ## Chat injection
 
