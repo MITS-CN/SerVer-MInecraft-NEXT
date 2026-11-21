@@ -45,6 +45,9 @@ pub fn start_viaproxy(
     ));
 
     let mut child = Command::new("java")
+        // Keep ViaProxy from inheriting the parent terminal: its interactive
+        // command handler otherwise races the Rust stdin console for input.
+        .stdin(Stdio::null())
         .arg("-jar")
         .arg(jar_path)
         .arg("cli")
