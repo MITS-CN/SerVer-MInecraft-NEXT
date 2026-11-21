@@ -162,7 +162,7 @@ fn escape_json(s: &str) -> String {
 
 pub fn system_chat_id(protocol: i32) -> i32 {
     match protocol {
-        763 => 0x62,
+        763 => 0x64,
         764 => 0x67,
         765 => 0x69,
         766 => 0x6C,
