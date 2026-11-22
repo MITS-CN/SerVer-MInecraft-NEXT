@@ -18,6 +18,7 @@ import java.nio.ByteOrder;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -87,15 +88,20 @@ final class PlayerActivityPacketHandler extends PacketHandler {
 
     @Override
     public boolean handleP2S(Packet packet, List<ChannelFutureListener> listeners) {
-        if (packet instanceof UnknownPacket unknown && this.logger.isLocationLoggingEnabled()) {
+        if (packet instanceof UnknownPacket unknown) {
+            int serverProtocol = this.proxyConnection.getServerVersion().getVersion();
             MCPackets type = MCPackets.getPacket(
                     ConnectionState.PLAY,
                     PacketDirection.CLIENTBOUND,
-                    this.proxyConnection.getServerVersion().getVersion(),
+                    serverProtocol,
                     unknown.packetId
             );
-            if (type == MCPackets.S2C_LOGIN || type == MCPackets.S2C_RESPAWN) {
-                updateDimension(extractDimension(type, unknown.data, this.proxyConnection.getServerVersion().getVersion()));
+            if (this.logger.isServerChatLoggingEnabled() && type == MCPackets.S2C_PLAYER_CHAT) {
+                logRawServerChat(unknown.data, serverProtocol);
+            }
+            if (this.logger.isLocationLoggingEnabled()
+                    && (type == MCPackets.S2C_LOGIN || type == MCPackets.S2C_RESPAWN)) {
+                updateDimension(extractDimension(type, unknown.data, serverProtocol));
             }
         }
 
@@ -120,6 +126,35 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         }
         this.logger.logLeave(player, playerUuid(), start, Instant.now(),
                 this.dimension, this.x, this.y, this.z, this.yaw, this.pitch);
+    }
+
+    private void logRawServerChat(byte[] data, int protocolVersion) {
+        if (data == null || data.length == 0) return;
+        try {
+            ByteBuf buffer = Unpooled.wrappedBuffer(data);
+            try {
+                // Minecraft 1.21.9 added a per-client global chat index before the sender UUID.
+                if (protocolVersion >= MCVersion.v1_21_9) {
+                    PacketTypes.readVarInt(buffer);
+                }
+                UUID sender = PacketTypes.readUuid(buffer);
+                // The sender's own connection is already covered by the client-to-proxy chat log.
+                // Another tunnel client's connection can still observe and record this broadcast.
+                String receivingPlayerUuid = playerUuid();
+                if (sender.toString().equalsIgnoreCase(receivingPlayerUuid == null ? "" : receivingPlayerUuid)) return;
+                PacketTypes.readVarInt(buffer); // Sender message index
+                if (buffer.readBoolean()) {
+                    buffer.skipBytes(256); // Optional message signature
+                }
+                String message = PacketTypes.readString(buffer, 256);
+                long messageTimestamp = buffer.readLong();
+                this.logger.logServerChat(sender.toString(), message, messageTimestamp);
+            } finally {
+                buffer.release();
+            }
+        } catch (RuntimeException ignored) {
+            // Unsupported or malformed backend chat payloads must never affect forwarding.
+        }
     }
 
     private void logRawChat(MCPackets type, byte[] data) {

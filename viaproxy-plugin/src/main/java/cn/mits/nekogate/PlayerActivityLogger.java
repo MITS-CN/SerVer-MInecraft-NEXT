@@ -10,6 +10,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.Properties;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * Optional append-only player activity audit log.
@@ -18,10 +20,13 @@ final class PlayerActivityLogger {
     private final Path logFile;
     private final boolean enabled;
     private final boolean logChat;
+    private final boolean logServerChat;
     private final boolean logCommands;
     private final boolean logConnections;
     private final boolean logLocations;
     private final Object writeLock = new Object();
+    private final Object serverChatDedupLock = new Object();
+    private final Map<String, Boolean> recentServerMessages = new LinkedHashMap<>(256, 0.75f, true);
 
     PlayerActivityLogger(Path directory) {
         Path configFile = directory.resolve("config.properties");
@@ -36,6 +41,8 @@ final class PlayerActivityLogger {
                     # Disabled by default. Set logging.enabled=true to start recording.
                     logging.enabled=false
                     logging.chat=true
+                    # Record chat broadcast by the backend while at least one tunnel player is online.
+                    logging.server_chat=true
                     logging.commands=true
                     logging.connections=true
                     logging.locations=true
@@ -50,6 +57,7 @@ final class PlayerActivityLogger {
 
         this.enabled = Boolean.parseBoolean(config.getProperty("logging.enabled", "false"));
         this.logChat = Boolean.parseBoolean(config.getProperty("logging.chat", "true"));
+        this.logServerChat = Boolean.parseBoolean(config.getProperty("logging.server_chat", "true"));
         this.logCommands = Boolean.parseBoolean(config.getProperty("logging.commands", "true"));
         this.logConnections = Boolean.parseBoolean(config.getProperty("logging.connections", "true"));
         this.logLocations = Boolean.parseBoolean(config.getProperty("logging.locations", "true"));
@@ -63,6 +71,10 @@ final class PlayerActivityLogger {
 
     boolean isEnabled() {
         return this.enabled;
+    }
+
+    boolean isServerChatLoggingEnabled() {
+        return this.enabled && this.logServerChat;
     }
 
     boolean isLocationLoggingEnabled() {
@@ -103,6 +115,33 @@ final class PlayerActivityLogger {
         if (!this.enabled || !this.logChat) return;
         JsonObject event = event("chat", player, uuid);
         event.addProperty("message", message);
+        append(event);
+    }
+
+    void logServerChat(String senderUuid, String message, long messageTimestamp) {
+        if (!isServerChatLoggingEnabled() || message == null || message.isBlank()) return;
+
+        // Every tunnel client receives the same backend broadcast. Keep one copy per
+        // sender/message timestamp instead of writing a duplicate for each connection.
+        String key = senderUuid + "\u0000" + messageTimestamp + "\u0000" + message;
+        synchronized (this.serverChatDedupLock) {
+            if (this.recentServerMessages.containsKey(key)) return;
+            this.recentServerMessages.put(key, Boolean.TRUE);
+            if (this.recentServerMessages.size() > 4096) {
+                var iterator = this.recentServerMessages.keySet().iterator();
+                if (iterator.hasNext()) {
+                    iterator.next();
+                    iterator.remove();
+                }
+            }
+        }
+
+        JsonObject event = new JsonObject();
+        event.addProperty("timestamp", Instant.now().toString());
+        event.addProperty("event", "server_chat");
+        event.addProperty("sender_uuid", senderUuid);
+        event.addProperty("message", message);
+        event.addProperty("message_timestamp", messageTimestamp);
         append(event);
     }
 
