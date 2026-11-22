@@ -21,6 +21,8 @@ final class PlayerActivityLogger {
     private final boolean enabled;
     private final boolean logChat;
     private final boolean logServerChat;
+    private final boolean logSystemMessages;
+    private final boolean logWhispers;
     private final boolean logCommands;
     private final boolean logConnections;
     private final boolean logLocations;
@@ -43,6 +45,8 @@ final class PlayerActivityLogger {
                     logging.chat=true
                     # Record chat broadcast by the backend while at least one tunnel player is online.
                     logging.server_chat=true
+                    logging.system_messages=true
+                    logging.whispers=true
                     logging.commands=true
                     logging.connections=true
                     logging.locations=true
@@ -58,6 +62,8 @@ final class PlayerActivityLogger {
         this.enabled = Boolean.parseBoolean(config.getProperty("logging.enabled", "false"));
         this.logChat = Boolean.parseBoolean(config.getProperty("logging.chat", "true"));
         this.logServerChat = Boolean.parseBoolean(config.getProperty("logging.server_chat", "true"));
+        this.logSystemMessages = Boolean.parseBoolean(config.getProperty("logging.system_messages", "true"));
+        this.logWhispers = Boolean.parseBoolean(config.getProperty("logging.whispers", "true"));
         this.logCommands = Boolean.parseBoolean(config.getProperty("logging.commands", "true"));
         this.logConnections = Boolean.parseBoolean(config.getProperty("logging.connections", "true"));
         this.logLocations = Boolean.parseBoolean(config.getProperty("logging.locations", "true"));
@@ -79,6 +85,10 @@ final class PlayerActivityLogger {
 
     boolean isLocationLoggingEnabled() {
         return this.enabled && this.logLocations;
+    }
+
+    boolean isSystemMessageLoggingEnabled() {
+        return this.enabled && this.logSystemMessages;
     }
 
     void logJoin(String player, String uuid, Instant joinedAt, String dimension,
@@ -145,6 +155,31 @@ final class PlayerActivityLogger {
         }
         event.addProperty("message", message);
         event.addProperty("message_timestamp", messageTimestamp);
+        append(event);
+    }
+
+    void logSystemMessage(String player, String uuid, String component, boolean overlay) {
+        if (!isSystemMessageLoggingEnabled() || component == null || component.isBlank()) return;
+        JsonObject event = event("system_message", player, uuid);
+        event.addProperty("component", component);
+        event.addProperty("overlay", overlay);
+        append(event);
+    }
+
+    void logWhisper(String sender, String senderUuid, String recipient, String message, String direction) {
+        if (!this.enabled || !this.logWhispers || message == null || message.isBlank()) return;
+        JsonObject event = event("whisper", sender, senderUuid);
+        event.addProperty("direction", direction);
+        if (recipient != null && !recipient.isBlank()) event.addProperty("recipient", recipient);
+        event.addProperty("message", message);
+        append(event);
+    }
+
+    void logReceivedWhisper(String player, String uuid, String component) {
+        if (!this.enabled || !this.logWhispers || component == null || component.isBlank()) return;
+        JsonObject event = event("whisper", player, uuid);
+        event.addProperty("direction", "received");
+        event.addProperty("component", component);
         append(event);
     }
 

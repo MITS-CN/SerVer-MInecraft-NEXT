@@ -79,13 +79,19 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         if (packetName.contains("chatcommand")) {
             String command = readString(packet, "command");
             if (command != null && !command.isBlank()) {
-                this.logger.logCommand(player, uuid, command.startsWith("/") ? command : "/" + command);
+                String normalized = command.startsWith("/") ? command : "/" + command;
+                this.logger.logCommand(player, uuid, normalized);
+                logWhisperCommand(player, uuid, normalized);
             }
         } else {
             String message = readString(packet, "message");
             if (message == null || message.isBlank()) return true;
-            if (message.startsWith("/")) this.logger.logCommand(player, uuid, message);
-            else this.logger.logChat(player, uuid, message);
+            if (message.startsWith("/")) {
+                this.logger.logCommand(player, uuid, message);
+                logWhisperCommand(player, uuid, message);
+            } else {
+                this.logger.logChat(player, uuid, message);
+            }
         }
         return true;
     }
@@ -109,6 +115,9 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             }
             if (this.logger.isServerChatLoggingEnabled() && type == MCPackets.S2C_PLAYER_CHAT) {
                 logRawServerChat(unknown.data, serverProtocol);
+            }
+            if (this.logger.isSystemMessageLoggingEnabled() && type == MCPackets.S2C_SYSTEM_CHAT) {
+                logRawSystemMessage(unknown.data);
             }
             if (this.logger.isLocationLoggingEnabled()
                     && (type == MCPackets.S2C_LOGIN || type == MCPackets.S2C_RESPAWN)) {
@@ -242,6 +251,38 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         buffer.skipBytes(length);
     }
 
+
+    private void logRawSystemMessage(byte[] data) {
+        if (data == null || data.length == 0) return;
+        ByteBuf buffer = Unpooled.wrappedBuffer(data);
+        try {
+            Object component = Types.TAG.read(buffer);
+            boolean overlay = buffer.readBoolean();
+            String serialized = component == null ? "" : component.toString();
+            if (!serialized.isBlank()) {
+                this.logger.logSystemMessage(playerName(), playerUuid(), serialized, overlay);
+                // Vanilla /msg, /tell and /w responses use these translation keys.
+                if (serialized.contains("commands.message.display.incoming")) {
+                    this.logger.logReceivedWhisper(playerName(), playerUuid(), serialized);
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // Ignore unsupported component encodings without affecting packet forwarding.
+        } finally {
+            buffer.release();
+        }
+    }
+
+    private void logWhisperCommand(String sender, String senderUuid, String command) {
+        String value = command.startsWith("/") ? command.substring(1) : command;
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(
+                "(?i)^(?:minecraft:)?(?:msg|tell|w|whisper)\\s+(\\S+)\\s+(.+)$"
+        ).matcher(value);
+        if (matcher.matches()) {
+            this.logger.logWhisper(sender, senderUuid, matcher.group(1), matcher.group(2), "sent");
+        }
+    }
+
     private void logRawChat(MCPackets type, byte[] data) {
         if (data == null || data.length == 0) return;
         try {
@@ -259,7 +300,9 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             if (type == MCPackets.C2S_CHAT) {
                 this.logger.logChat(player, playerUuid(), value);
             } else {
-                this.logger.logCommand(player, playerUuid(), value.startsWith("/") ? value : "/" + value);
+                String command = value.startsWith("/") ? value : "/" + value;
+                this.logger.logCommand(player, playerUuid(), command);
+                logWhisperCommand(player, playerUuid(), command);
             }
         } catch (RuntimeException ignored) {
             // Malformed or version-specific payloads are ignored; the packet still passes through.
