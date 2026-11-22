@@ -118,7 +118,7 @@ final class PlayerActivityLogger {
         append(event);
     }
 
-    void logServerChat(String senderUuid, String message, long messageTimestamp) {
+    void logServerChat(String senderUuid, String senderName, String message, long messageTimestamp) {
         if (!isServerChatLoggingEnabled() || message == null || message.isBlank()) return;
 
         // Every tunnel client receives the same backend broadcast. Keep one copy per
@@ -140,6 +140,9 @@ final class PlayerActivityLogger {
         event.addProperty("timestamp", Instant.now().toString());
         event.addProperty("event", "server_chat");
         event.addProperty("sender_uuid", senderUuid);
+        if (senderName != null && !senderName.isBlank()) {
+            event.addProperty("sender_name", senderName);
+        }
         event.addProperty("message", message);
         event.addProperty("message_timestamp", messageTimestamp);
         append(event);

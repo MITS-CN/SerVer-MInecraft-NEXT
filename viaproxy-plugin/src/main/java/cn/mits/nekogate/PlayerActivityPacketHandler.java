@@ -3,6 +3,7 @@ package cn.mits.nekogate;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFutureListener;
+import com.viaversion.viaversion.api.type.Types;
 import net.raphimc.netminecraft.constants.ConnectionState;
 import net.raphimc.netminecraft.constants.MCPackets;
 import net.raphimc.netminecraft.constants.MCVersion;
@@ -19,6 +20,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -26,6 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 final class PlayerActivityPacketHandler extends PacketHandler {
     private final PlayerActivityLogger logger;
+    private final Map<String, String> backendPlayerNames = new ConcurrentHashMap<>();
     private final AtomicBoolean joined = new AtomicBoolean();
     private final AtomicBoolean joinLogged = new AtomicBoolean();
     private volatile Instant joinedAt;
@@ -96,6 +100,13 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                     serverProtocol,
                     unknown.packetId
             );
+            if (serverProtocol >= MCVersion.v26_3) {
+                if (type == MCPackets.S2C_PLAYER_INFO_UPDATE) {
+                    updateBackendPlayerNames(unknown.data);
+                } else if (type == MCPackets.S2C_PLAYER_INFO_REMOVE) {
+                    removeBackendPlayerNames(unknown.data);
+                }
+            }
             if (this.logger.isServerChatLoggingEnabled() && type == MCPackets.S2C_PLAYER_CHAT) {
                 logRawServerChat(unknown.data, serverProtocol);
             }
@@ -148,13 +159,87 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                 }
                 String message = PacketTypes.readString(buffer, 256);
                 long messageTimestamp = buffer.readLong();
-                this.logger.logServerChat(sender.toString(), message, messageTimestamp);
+                this.logger.logServerChat(sender.toString(), this.backendPlayerNames.get(sender.toString()), message, messageTimestamp);
             } finally {
                 buffer.release();
             }
         } catch (RuntimeException ignored) {
             // Unsupported or malformed backend chat payloads must never affect forwarding.
         }
+    }
+
+
+    /**
+     * Minecraft 26.3 player_info_update: action flags (byte), entry count,
+     * then UUID and the payloads selected by each action bit in ordinal order.
+     */
+    private void updateBackendPlayerNames(byte[] data) {
+        if (data == null || data.length == 0) return;
+        ByteBuf buffer = Unpooled.wrappedBuffer(data);
+        try {
+            int actions = buffer.readUnsignedByte();
+            int count = PacketTypes.readVarInt(buffer);
+            if (count < 0 || count > 4096) return;
+
+            for (int i = 0; i < count; i++) {
+                UUID playerId = PacketTypes.readUuid(buffer);
+                if ((actions & 0x01) != 0) {
+                    String name = PacketTypes.readString(buffer, 16);
+                    if (name != null && !name.isBlank()) {
+                        this.backendPlayerNames.put(playerId.toString(), name);
+                    }
+                    int properties = PacketTypes.readVarInt(buffer);
+                    if (properties < 0 || properties > 1024) return;
+                    for (int property = 0; property < properties; property++) {
+                        PacketTypes.readString(buffer, 64); // Property name
+                        PacketTypes.readString(buffer, 32767); // Property value
+                        if (buffer.readBoolean()) {
+                            PacketTypes.readString(buffer, 1024); // Optional signature
+                        }
+                    }
+                }
+                if ((actions & 0x02) != 0 && buffer.readBoolean()) {
+                    PacketTypes.readUuid(buffer); // Chat session ID
+                    buffer.readLong(); // Public key expiry
+                    skipLengthPrefixedBytes(buffer); // Encoded public key
+                    skipLengthPrefixedBytes(buffer); // Public key signature
+                }
+                if ((actions & 0x04) != 0) PacketTypes.readVarInt(buffer); // Game mode
+                if ((actions & 0x08) != 0) buffer.readBoolean(); // Listed
+                if ((actions & 0x10) != 0) PacketTypes.readVarInt(buffer); // Latency
+                if ((actions & 0x20) != 0) Types.OPTIONAL_TAG.read(buffer); // Display name component
+                if ((actions & 0x40) != 0) PacketTypes.readVarInt(buffer); // List order
+                if ((actions & 0x80) != 0) buffer.readBoolean(); // Show hat
+            }
+        } catch (RuntimeException ignored) {
+            // Never interfere with forwarding if a backend sends an unknown packet layout.
+        } finally {
+            buffer.release();
+        }
+    }
+
+    private void removeBackendPlayerNames(byte[] data) {
+        if (data == null || data.length == 0) return;
+        ByteBuf buffer = Unpooled.wrappedBuffer(data);
+        try {
+            int count = PacketTypes.readVarInt(buffer);
+            if (count < 0 || count > 4096) return;
+            for (int i = 0; i < count; i++) {
+                this.backendPlayerNames.remove(PacketTypes.readUuid(buffer).toString());
+            }
+        } catch (RuntimeException ignored) {
+            // Ignore malformed player-list updates; packet forwarding remains untouched.
+        } finally {
+            buffer.release();
+        }
+    }
+
+    private static void skipLengthPrefixedBytes(ByteBuf buffer) {
+        int length = PacketTypes.readVarInt(buffer);
+        if (length < 0 || length > buffer.readableBytes()) {
+            throw new IllegalArgumentException("Invalid length-prefixed byte array");
+        }
+        buffer.skipBytes(length);
     }
 
     private void logRawChat(MCPackets type, byte[] data) {
