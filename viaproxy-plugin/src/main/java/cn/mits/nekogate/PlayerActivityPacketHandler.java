@@ -260,10 +260,10 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             boolean overlay = buffer.readBoolean();
             String serialized = component == null ? "" : component.toString();
             if (!serialized.isBlank()) {
-                this.logger.logSystemMessage(serialized, overlay);
+                this.logger.logSystemMessage(playerName(), playerUuid(), serialized, overlay);
                 // Vanilla /msg, /tell and /w responses use these translation keys.
                 if (serialized.contains("commands.message.display.incoming")) {
-                    this.logger.logReceivedWhisper(serialized);
+                    this.logger.logReceivedWhisper(playerName(), playerUuid(), serialized);
                 }
             }
         } catch (RuntimeException ignored) {
