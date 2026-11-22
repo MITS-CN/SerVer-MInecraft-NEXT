@@ -79,13 +79,19 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         if (packetName.contains("chatcommand")) {
             String command = readString(packet, "command");
             if (command != null && !command.isBlank()) {
-                this.logger.logCommand(player, uuid, command.startsWith("/") ? command : "/" + command);
+                String normalized = command.startsWith("/") ? command : "/" + command;
+                this.logger.logCommand(player, uuid, normalized);
+                logWhisperCommand(player, uuid, normalized);
             }
         } else {
             String message = readString(packet, "message");
             if (message == null || message.isBlank()) return true;
-            if (message.startsWith("/")) this.logger.logCommand(player, uuid, message);
-            else this.logger.logChat(player, uuid, message);
+            if (message.startsWith("/")) {
+                this.logger.logCommand(player, uuid, message);
+                logWhisperCommand(player, uuid, message);
+            } else {
+                this.logger.logChat(player, uuid, message);
+            }
         }
         return true;
     }
