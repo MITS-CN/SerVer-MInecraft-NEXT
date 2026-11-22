@@ -158,11 +158,9 @@ final class PlayerActivityLogger {
         append(event);
     }
 
-    void logSystemMessage(String component, boolean overlay) {
+    void logSystemMessage(String player, String uuid, String component, boolean overlay) {
         if (!isSystemMessageLoggingEnabled() || component == null || component.isBlank()) return;
-        JsonObject event = new JsonObject();
-        event.addProperty("timestamp", Instant.now().toString());
-        event.addProperty("event", "system_message");
+        JsonObject event = event("system_message", player, uuid);
         event.addProperty("component", component);
         event.addProperty("overlay", overlay);
         append(event);
@@ -177,11 +175,9 @@ final class PlayerActivityLogger {
         append(event);
     }
 
-    void logReceivedWhisper(String component) {
+    void logReceivedWhisper(String player, String uuid, String component) {
         if (!this.enabled || !this.logWhispers || component == null || component.isBlank()) return;
-        JsonObject event = new JsonObject();
-        event.addProperty("timestamp", Instant.now().toString());
-        event.addProperty("event", "whisper");
+        JsonObject event = event("whisper", player, uuid);
         event.addProperty("direction", "received");
         event.addProperty("component", component);
         append(event);
