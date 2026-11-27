@@ -5,12 +5,15 @@ import cn.mits.nekogate.api.NekoGateAPI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Consumer;
 
 final class NekoGateCommandManager implements NekoGateAPI.CommandRegistry {
-    private record Registration(String permission, String description, NekoGateAPI.CommandExecutor executor) { }
+    private record Registration(String permission, String description, List<String> subcommands,
+                                NekoGateAPI.CommandExecutor executor) { }
     private record Context(NekoGateAPI.Player player, List<String> arguments, String input,
                            Consumer<String> reply) implements NekoGateAPI.CommandContext {
         @Override public void reply(String message) {
@@ -28,6 +31,12 @@ final class NekoGateCommandManager implements NekoGateAPI.CommandRegistry {
     @Override
     public NekoGateAPI.Subscription register(String name, String permission, String description,
                                               NekoGateAPI.CommandExecutor executor) {
+        return register(name, permission, description, List.of(), executor);
+    }
+
+    @Override
+    public NekoGateAPI.Subscription register(String name, String permission, String description,
+                                              List<String> subcommands, NekoGateAPI.CommandExecutor executor) {
         if (name == null || !name.matches("[A-Za-z0-9_-]{1,32}")) {
             throw new IllegalArgumentException("Command name must be 1-32 letters, digits, '_' or '-'");
         }
@@ -36,22 +45,35 @@ final class NekoGateCommandManager implements NekoGateAPI.CommandRegistry {
         }
         if (executor == null) throw new IllegalArgumentException("executor is required");
 
+        List<String> children = (subcommands == null ? List.<String>of() : subcommands).stream()
+                .filter(child -> child != null && child.matches("[A-Za-z0-9_-]{1,32}"))
+                .map(child -> child.toLowerCase(Locale.ROOT))
+                .distinct()
+                .sorted()
+                .toList();
+        if (subcommands != null && children.size() != subcommands.size()) {
+            throw new IllegalArgumentException("Subcommands must be unique literals containing 1-32 letters, digits, '_' or '-'");
+        }
+
         String key = name.toLowerCase(Locale.ROOT);
-        Registration registration = new Registration(permission, description == null ? "" : description, executor);
+        Registration registration = new Registration(permission, description == null ? "" : description,
+                children, executor);
         if (this.commands.putIfAbsent(key, registration) != null) {
             throw new IllegalStateException("Command is already registered: " + key);
         }
         return () -> this.commands.remove(key, registration);
     }
 
-    /** Returns extension commands visible to this player in the client command tree. */
-    List<String> visibleCommandNames(NekoGateAPI.Player player) {
-        if (player == null) return List.of();
-        return this.commands.entrySet().stream()
-                .filter(entry -> this.permissions.has(player, entry.getValue().permission()))
-                .map(java.util.Map.Entry::getKey)
-                .sorted()
-                .toList();
+    /** Returns extension commands and their literal children visible to this player. */
+    Map<String, List<String>> visibleCommands(NekoGateAPI.Player player) {
+        if (player == null) return Map.of();
+        Map<String, List<String>> visible = new TreeMap<>();
+        this.commands.forEach((name, registration) -> {
+            if (this.permissions.has(player, registration.permission())) {
+                visible.put(name, registration.subcommands());
+            }
+        });
+        return Map.copyOf(visible);
     }
 
     /** Returns true when the input belongs to a registered extension command. */
