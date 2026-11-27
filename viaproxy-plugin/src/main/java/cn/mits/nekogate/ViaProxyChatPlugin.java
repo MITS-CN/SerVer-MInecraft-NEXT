@@ -52,6 +52,8 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
         Path dataDirectory = Path.of("plugins", "NekoGate");
         this.activityLogger = new PlayerActivityLogger(dataDirectory);
         this.extensionEvents = new NekoGateEventBus();
+        NekoGatePermissionManager permissions = new NekoGatePermissionManager(dataDirectory.resolve("permissions.properties"));
+        NekoGateCommandManager commands = new NekoGateCommandManager(permissions);
         this.extensionApi = new NekoGateApiImpl(dataDirectory, this.extensionEvents,
                 new NekoGateApiImpl.PlayerService() {
                     @Override public List<NekoGateAPI.Player> onlinePlayers() {
@@ -66,7 +68,7 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
                     @Override public boolean kick(String playerName, String reason) {
                         return ViaProxyChatPlugin.this.kickPlayer(playerName, reason);
                     }
-                }, this.activityLogger::logExtensionEvent);
+                }, this.activityLogger::logExtensionEvent, commands, permissions);
         this.extensionLoader = new NekoGateExtensionLoader();
         this.extensionLoader.load(dataDirectory.resolve("extensions"), this.extensionApi);
         ViaProxy.EVENT_MANAGER.register(new ActivityListener());
