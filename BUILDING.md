@@ -4,7 +4,7 @@
 
 - Rust stable toolchain
 - JDK 17 or newer (Java 25 is supported)
-- PowerShell on Windows, or Python 3 on Linux/macOS (for the ViaProxy updater)
+- PowerShell on Windows, or Python 3.7+ on Linux/macOS (for the ViaProxy updater)
 - A ViaProxy JAR in the project working directory (optional when the updater can reach GitHub)
 
 ## Build and run
