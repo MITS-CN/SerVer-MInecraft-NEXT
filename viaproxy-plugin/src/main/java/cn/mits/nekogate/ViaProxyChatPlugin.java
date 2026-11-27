@@ -68,7 +68,7 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
                 return ViaProxyChatPlugin.this.kickPlayer(playerName, reason);
             }
         };
-        DisplayNameManager displayNames = new DisplayNameManager(dataDirectory.resolve("name.josn5"), playerService);
+        DisplayNameManager displayNames = new DisplayNameManager(Path.of("./data/name.josn5"), playerService);
         this.extensionApi = new NekoGateApiImpl(dataDirectory, this.extensionEvents,
                 playerService, this.activityLogger::logExtensionEvent, commands, permissions, displayNames);
         this.extensionLoader = new NekoGateExtensionLoader();

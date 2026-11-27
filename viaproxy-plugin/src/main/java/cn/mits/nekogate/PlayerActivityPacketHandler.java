@@ -3,6 +3,10 @@ package cn.mits.nekogate;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFutureListener;
+import com.viaversion.nbt.tag.CompoundTag;
+import com.viaversion.nbt.tag.ListTag;
+import com.viaversion.nbt.tag.Tag;
+import com.viaversion.viaversion.api.minecraft.item.data.ChatType;
 import com.viaversion.viaversion.api.type.Types;
 import net.raphimc.netminecraft.constants.ConnectionState;
 import net.raphimc.netminecraft.constants.MCPackets;
@@ -13,6 +17,7 @@ import net.raphimc.netminecraft.packet.PacketTypes;
 import net.raphimc.netminecraft.packet.UnknownPacket;
 import net.raphimc.viaproxy.proxy.packethandler.PacketHandler;
 import net.raphimc.viaproxy.proxy.session.ProxyConnection;
+import cn.mits.nekogate.api.Component;
 import cn.mits.nekogate.api.NekoGateAPI;
 import cn.mits.nekogate.api.NekoGateEvents;
 
@@ -128,11 +133,13 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             if (serverProtocol >= MCVersion.v26_3) {
                 if (type == MCPackets.S2C_PLAYER_INFO_UPDATE) {
                     updateBackendPlayerNames(unknown.data);
+                    unknown.data = rewritePlayerInfoUpdate(unknown.data);
                 } else if (type == MCPackets.S2C_PLAYER_INFO_REMOVE) {
                     removeBackendPlayerNames(unknown.data);
                 }
             }
             if (type == MCPackets.S2C_PLAYER_CHAT) {
+                unknown.data = rewritePlayerChat(unknown.data, serverProtocol);
                 logRawServerChat(unknown.data, serverProtocol);
             }
             if (type == MCPackets.S2C_SYSTEM_CHAT) {
@@ -248,6 +255,168 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         } finally {
             buffer.release();
         }
+    }
+
+    /**
+     * Rewrites only the optional display-name component in 26.3 player-info updates.
+     * All other fields are copied byte-for-byte so ViaVersion can translate the packet normally.
+     */
+    private byte[] rewritePlayerInfoUpdate(byte[] data) {
+        if (data == null || data.length == 0 || this.extensionApi == null) return data;
+        ByteBuf input = Unpooled.wrappedBuffer(data);
+        ByteBuf output = Unpooled.buffer(data.length + 128);
+        try {
+            int actions = input.readUnsignedByte();
+            int count = PacketTypes.readVarInt(input);
+            if (count < 0 || count > 4096) return data;
+            copyConsumed(input, output, 0);
+            for (int i = 0; i < count; i++) {
+                int fieldStart = input.readerIndex();
+                UUID playerId = PacketTypes.readUuid(input);
+                copyConsumed(input, output, fieldStart);
+
+                if ((actions & 0x01) != 0) {
+                    fieldStart = input.readerIndex();
+                    String username = PacketTypes.readString(input, 16);
+                    if (username != null && !username.isBlank()) {
+                        this.backendPlayerNames.put(playerId.toString(), username);
+                    }
+                    int properties = PacketTypes.readVarInt(input);
+                    if (properties < 0 || properties > 1024) return data;
+                    for (int property = 0; property < properties; property++) {
+                        PacketTypes.readString(input, 64);
+                        PacketTypes.readString(input, 32767);
+                        if (input.readBoolean()) PacketTypes.readString(input, 1024);
+                    }
+                    copyConsumed(input, output, fieldStart);
+                }
+                if ((actions & 0x02) != 0) {
+                    fieldStart = input.readerIndex();
+                    if (input.readBoolean()) {
+                        PacketTypes.readUuid(input);
+                        input.readLong();
+                        skipLengthPrefixedBytes(input);
+                        skipLengthPrefixedBytes(input);
+                    }
+                    copyConsumed(input, output, fieldStart);
+                }
+                if ((actions & 0x04) != 0) {
+                    fieldStart = input.readerIndex();
+                    PacketTypes.readVarInt(input);
+                    copyConsumed(input, output, fieldStart);
+                }
+                if ((actions & 0x08) != 0) {
+                    fieldStart = input.readerIndex();
+                    input.readBoolean();
+                    copyConsumed(input, output, fieldStart);
+                }
+                if ((actions & 0x10) != 0) {
+                    fieldStart = input.readerIndex();
+                    PacketTypes.readVarInt(input);
+                    copyConsumed(input, output, fieldStart);
+                }
+                if ((actions & 0x20) != 0) {
+                    fieldStart = input.readerIndex();
+                    Types.OPTIONAL_TAG.read(input);
+                    if (this.extensionApi.displayNames().find(playerId).isPresent()) {
+                        String username = this.backendPlayerNames.get(playerId.toString());
+                        Tag displayName = toTag(this.extensionApi.displayNames().tabName(playerId, username));
+                        Types.OPTIONAL_TAG.write(output, displayName);
+                    } else {
+                        copyConsumed(input, output, fieldStart);
+                    }
+                }
+                if ((actions & 0x40) != 0) {
+                    fieldStart = input.readerIndex();
+                    PacketTypes.readVarInt(input);
+                    copyConsumed(input, output, fieldStart);
+                }
+                if ((actions & 0x80) != 0) {
+                    fieldStart = input.readerIndex();
+                    input.readBoolean();
+                    copyConsumed(input, output, fieldStart);
+                }
+            }
+            if (input.isReadable()) return data;
+            byte[] rewritten = new byte[output.readableBytes()];
+            output.getBytes(output.readerIndex(), rewritten);
+            return rewritten;
+        } catch (RuntimeException ignored) {
+            // Malformed or unsupported packet layouts are forwarded unchanged.
+            return data;
+        } finally {
+            input.release();
+            output.release();
+        }
+    }
+
+    /**
+     * In 26.3 PLAYER_CHAT carries senderName as an NBT component. Replacing that
+     * presentation field changes the chat label without touching the sender UUID,
+     * message signature, body, chat type, or target name.
+     */
+    private byte[] rewritePlayerChat(byte[] data, int protocolVersion) {
+        if (data == null || data.length == 0 || this.extensionApi == null
+                || protocolVersion < MCVersion.v26_3) return data;
+        ByteBuf input = Unpooled.wrappedBuffer(data);
+        ByteBuf output = Unpooled.buffer(data.length + 128);
+        try {
+            PacketTypes.readVarInt(input); // Global chat index (26.3)
+            UUID sender = PacketTypes.readUuid(input);
+            PacketTypes.readVarInt(input); // Sender message index
+            if (input.readBoolean()) input.skipBytes(256); // Optional signature
+            PacketTypes.readString(input, 256); // Signed message
+            input.readLong(); // Timestamp
+            input.readLong(); // Salt
+            int previousMessages = PacketTypes.readVarInt(input);
+            if (previousMessages < 0 || previousMessages > 1024) return data;
+            for (int i = 0; i < previousMessages; i++) {
+                if (PacketTypes.readVarInt(input) == 0) input.skipBytes(256);
+            }
+            Types.OPTIONAL_TAG.read(input); // Unsigned content
+            int filterType = PacketTypes.readVarInt(input);
+            if (filterType == 2) Types.BIT_SET.read(input); // Partially filtered message
+            ChatType.TYPE.read(input); // Holder<ChatType>
+
+            int senderNameStart = input.readerIndex();
+            Types.TAG.read(input); // Sender name component
+            if (this.extensionApi.displayNames().find(sender).isEmpty()) return data;
+
+            String username = this.backendPlayerNames.get(sender.toString());
+            Tag displayName = toTag(this.extensionApi.displayNames().chatName(sender, username));
+            output.writeBytes(input, 0, senderNameStart);
+            Types.TAG.write(output, displayName);
+            output.writeBytes(input, input.readerIndex(), input.readableBytes());
+
+            byte[] rewritten = new byte[output.readableBytes()];
+            output.getBytes(output.readerIndex(), rewritten);
+            return rewritten;
+        } catch (RuntimeException ignored) {
+            // Never let a malformed chat payload interfere with normal forwarding.
+            return data;
+        } finally {
+            input.release();
+            output.release();
+        }
+    }
+
+    private static Tag toTag(Component component) {
+        CompoundTag tag = new CompoundTag();
+        tag.putString("text", component.text());
+        if (component.color() != null) tag.putString("color", component.color());
+        if (component.bold()) tag.putBoolean("bold", true);
+        if (component.italic()) tag.putBoolean("italic", true);
+        if (!component.children().isEmpty()) {
+            List<Tag> children = new java.util.ArrayList<>(component.children().size());
+            for (Component child : component.children()) children.add(toTag(child));
+            tag.put("extra", new ListTag<>(children));
+        }
+        return tag;
+    }
+
+    private static void copyConsumed(ByteBuf input, ByteBuf output, int startIndex) {
+        int length = input.readerIndex() - startIndex;
+        if (length > 0) output.writeBytes(input, startIndex, length);
     }
 
     private void removeBackendPlayerNames(byte[] data) {
