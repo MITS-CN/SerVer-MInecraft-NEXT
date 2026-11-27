@@ -19,7 +19,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Thread-safe display-name overrides backed by ./data/name.josn5.
+ * Thread-safe display-name overrides backed by plugins/NekoGate/name.josn5.
  * Player names are the canonical configuration keys; UUID entries remain
  * readable for extensions/configurations created with API v1.2.
  */
@@ -137,6 +137,10 @@ final class DisplayNameManager implements DisplayNameService {
         configured.putAll(nextNames);
         legacyConfigured.clear();
         legacyConfigured.putAll(nextIds);
+
+        // A NameTag extension may reload its config while players are online.
+        // Re-send the updated entity metadata to every connected tunnel viewer.
+        PlayerActivityPacketHandler.refreshAllPlayerHeadNames();
     }
 
     @Override public Component chatName(String username) { return resolve(username); }
