@@ -11,6 +11,12 @@ import com.viaversion.nbt.tag.ListTag;
 import com.viaversion.nbt.tag.Tag;
 import com.viaversion.viaversion.api.minecraft.item.data.ChatType;
 import com.viaversion.viaversion.api.type.Types;
+import com.viaversion.viaversion.api.Via;
+import com.viaversion.viaversion.api.minecraft.entitydata.EntityData;
+import com.viaversion.viaversion.api.protocol.packet.VersionedPacketTransformer;
+import com.viaversion.viaversion.api.protocol.version.ProtocolVersion;
+import com.viaversion.viaversion.api.type.types.version.VersionedTypes;
+import com.viaversion.viaversion.protocols.v26_2to26_3.packet.ClientboundPackets26_3;
 import net.raphimc.netminecraft.constants.ConnectionState;
 import net.raphimc.netminecraft.constants.MCPackets;
 import net.raphimc.netminecraft.constants.MCVersion;
@@ -32,6 +38,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -39,11 +46,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Observes player activity and movement; registered extension commands may be consumed before backend forwarding.
  */
 final class PlayerActivityPacketHandler extends PacketHandler {
+    private static final Set<PlayerActivityPacketHandler> ACTIVE_HANDLERS = ConcurrentHashMap.newKeySet();
     private final PlayerActivityLogger logger;
     private final NekoGateApiImpl extensionApi;
     private final Map<String, String> backendPlayerNames = new ConcurrentHashMap<>();
     private final Map<String, Integer> backendEntityIds = new ConcurrentHashMap<>();
     private final Map<Integer, String> backendEntityNames = new ConcurrentHashMap<>();
+    private final Set<Integer> overriddenHeadNameEntities = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean joined = new AtomicBoolean();
     private final AtomicBoolean joinLogged = new AtomicBoolean();
     private volatile Instant joinedAt;
@@ -68,6 +77,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         super(connection);
         this.logger = logger;
         this.extensionApi = extensionApi;
+        ACTIVE_HANDLERS.add(this);
     }
 
     private NekoGateAPI.Player apiPlayer() {
@@ -162,9 +172,9 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                 } else if (type == MCPackets.S2C_PLAYER_INFO_REMOVE) {
                     removeBackendPlayerNames(unknown.data);
                 } else if (type == MCPackets.S2C_ADD_ENTITY) {
-                    trackPlayerEntity(unknown.data, listeners, serverProtocol);
+                    trackPlayerEntity(unknown.data);
                 } else if (type == MCPackets.S2C_SET_ENTITY_DATA) {
-                    reapplyPlayerHeadName(unknown.data, listeners, serverProtocol);
+                    reapplyPlayerHeadName(unknown.data);
                 } else if (type == MCPackets.S2C_REMOVE_ENTITIES) {
                     removePlayerEntities(unknown.data);
                 }
@@ -197,6 +207,10 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     }
 
     void onDisconnect() {
+        ACTIVE_HANDLERS.remove(this);
+        this.backendEntityNames.clear();
+        this.backendEntityIds.clear();
+        this.overriddenHeadNameEntities.clear();
         this.authMeAuthenticated = false;
         if (this.loginAttemptAt != null) {
             logLoginDiagnostic("CONNECTION_CLOSED", "packets=" + this.loginDiagnosticPackets
@@ -479,7 +493,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         }
     }
 
-    private static Tag toTag(Component component) {
+    private static CompoundTag toTag(Component component) {
         CompoundTag tag = new CompoundTag();
         tag.putString("text", component.text());
         if (component.color() != null) tag.putString("color", component.color());
@@ -508,7 +522,10 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                 String uuid = PacketTypes.readUuid(buffer).toString();
                 this.backendPlayerNames.remove(uuid);
                 Integer entityId = this.backendEntityIds.remove(uuid);
-                if (entityId != null) this.backendEntityNames.remove(entityId);
+                if (entityId != null) {
+                    this.backendEntityNames.remove(entityId);
+                    this.overriddenHeadNameEntities.remove(entityId);
+                }
             }
         } catch (RuntimeException ignored) {
             // Ignore malformed player-list updates; packet forwarding remains untouched.
@@ -522,7 +539,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
      * In 26.3 player entities are spawned through Add Entity, which carries the
      * same UUID that was announced in Player Info Update.
      */
-    private void trackPlayerEntity(byte[] data, List<ChannelFutureListener> listeners, int protocolVersion) {
+    private void trackPlayerEntity(byte[] data) {
         if (data == null || data.length == 0 || this.extensionApi == null) return;
         ByteBuf buffer = Unpooled.wrappedBuffer(data);
         try {
@@ -533,7 +550,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
 
             this.backendEntityIds.put(playerId.toString(), entityId);
             this.backendEntityNames.put(entityId, username);
-            queuePlayerHeadName(entityId, username, listeners, protocolVersion);
+            queuePlayerHeadName(entityId, username);
         } catch (RuntimeException ignored) {
             // Unknown or malformed spawn packets must not affect forwarding.
         } finally {
@@ -545,13 +562,13 @@ final class PlayerActivityPacketHandler extends PacketHandler {
      * Server metadata updates can overwrite an entity's custom name. Re-send
      * the configured value after the backend update so it remains presentation-only.
      */
-    private void reapplyPlayerHeadName(byte[] data, List<ChannelFutureListener> listeners, int protocolVersion) {
+    private void reapplyPlayerHeadName(byte[] data) {
         if (data == null || data.length == 0 || this.extensionApi == null) return;
         ByteBuf buffer = Unpooled.wrappedBuffer(data);
         try {
             int entityId = PacketTypes.readVarInt(buffer);
             String username = this.backendEntityNames.get(entityId);
-            if (username != null) queuePlayerHeadName(entityId, username, listeners, protocolVersion);
+            if (username != null) queuePlayerHeadName(entityId, username);
         } catch (RuntimeException ignored) {
             // Ignore malformed metadata packets.
         } finally {
@@ -559,32 +576,69 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         }
     }
 
-    private void queuePlayerHeadName(int entityId, String username,
-                                     List<ChannelFutureListener> listeners, int protocolVersion) {
+    private static volatile VersionedPacketTransformer<ClientboundPackets26_3, ?> headNameTransformer;
+
+    private static VersionedPacketTransformer<ClientboundPackets26_3, ?> headNameTransformer() {
+        VersionedPacketTransformer<ClientboundPackets26_3, ?> current = headNameTransformer;
+        if (current == null) synchronized (PlayerActivityPacketHandler.class) {
+            current = headNameTransformer;
+            if (current == null) {
+                current = Via.getManager().getProtocolManager().createPacketTransformer(
+                        ProtocolVersion.v26_3, ClientboundPackets26_3.class, null);
+                headNameTransformer = current;
+            }
+        }
+        return current;
+    }
+
+    static void refreshAllPlayerHeadNames() {
+        for (PlayerActivityPacketHandler handler : ACTIVE_HANDLERS) {
+            handler.refreshPlayerHeadNames();
+        }
+    }
+
+    private void refreshPlayerHeadNames() {
+        if (this.extensionApi == null || this.proxyConnection.isClosed()) return;
+        this.backendEntityNames.forEach(this::queuePlayerHeadName);
+    }
+
+    private void queuePlayerHeadName(int entityId, String username) {
         var displayName = this.extensionApi.displayNames().find(username).orElse(null);
-        if (displayName == null) return;
+        boolean wasOverridden = this.overriddenHeadNameEntities.contains(entityId);
+        if (displayName == null && !wasOverridden) return;
 
-        int packetId = MCPackets.S2C_SET_ENTITY_DATA.getId(protocolVersion);
-        if (packetId < 0) return;
-        ByteBuf output = Unpooled.buffer();
         try {
-            PacketTypes.writeVarInt(output, entityId);
-            output.writeByte(2); // Entity custom_name metadata index
-            PacketTypes.writeVarInt(output, 6); // Optional component serializer
-            Types.OPTIONAL_TAG.write(output, toTag(Component.join(
-                    displayName.prefix(), displayName.name(), displayName.suffix())));
-            output.writeByte(3); // Entity custom_name_visible metadata index
-            PacketTypes.writeVarInt(output, 8); // Boolean serializer
-            output.writeBoolean(true);
-            output.writeByte(0xFF); // Metadata terminator
+            var user = this.proxyConnection.getUserConnection();
+            if (user == null) {
+                System.err.println("[NekoGate][HEAD-NAME] Cannot inject custom name: ViaVersion UserConnection is unavailable");
+                return;
+            }
 
-            byte[] metadata = new byte[output.readableBytes()];
-            output.getBytes(output.readerIndex(), metadata);
-            listeners.add(future -> future.channel().writeAndFlush(new UnknownPacket(packetId, metadata)));
-        } catch (RuntimeException ignored) {
-            // Never let an invalid component prevent the original packet from forwarding.
-        } finally {
-            output.release();
+            // A null optional component and false visibility restore the vanilla
+            // player label when an override is removed from the configuration.
+            CompoundTag component = displayName == null ? null : toTag(Component.join(
+                    displayName.prefix(), displayName.name(), displayName.suffix()));
+            var metadata = List.of(
+                    new EntityData(2, VersionedTypes.V26_3.entityDataTypes().byId(6), component),
+                    new EntityData(3, VersionedTypes.V26_3.entityDataTypes().byId(8), displayName != null)
+            );
+
+            // Build the packet in the backend's 26.3 format and let ViaVersion
+            // translate its packet ID, metadata serializer IDs, and component
+            // representation for this individual client (including 1.20.1).
+            boolean sent = headNameTransformer().scheduleSend(user, ClientboundPackets26_3.SET_ENTITY_DATA, packet -> {
+                packet.write(Types.VAR_INT, entityId);
+                packet.write(VersionedTypes.V26_3.entityDataList(), metadata);
+            });
+            if (sent) {
+                if (displayName == null) this.overriddenHeadNameEntities.remove(entityId);
+                else this.overriddenHeadNameEntities.add(entityId);
+            } else {
+                System.err.println("[NekoGate][HEAD-NAME] ViaVersion cancelled custom-name packet for entity " + entityId);
+            }
+        } catch (Throwable error) {
+            System.err.println("[NekoGate][HEAD-NAME] Failed to inject custom name for entity "
+                    + entityId + " (" + username + "): " + error);
         }
     }
 
@@ -597,6 +651,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             for (int i = 0; i < count; i++) {
                 int entityId = PacketTypes.readVarInt(buffer);
                 String username = this.backendEntityNames.remove(entityId);
+                this.overriddenHeadNameEntities.remove(entityId);
                 if (username != null) {
                     this.backendEntityIds.entrySet().removeIf(entry ->
                             entry.getValue() != null && entry.getValue() == entityId);
