@@ -3,6 +3,7 @@ package cn.mits.nekogate;
 import cn.mits.nekogate.api.Component;
 import cn.mits.nekogate.api.DisplayName;
 import cn.mits.nekogate.api.DisplayNameService;
+import cn.mits.nekogate.api.NekoGateAPI;
 import com.viaversion.viaversion.libs.gson.JsonArray;
 import com.viaversion.viaversion.libs.gson.JsonElement;
 import com.viaversion.viaversion.libs.gson.JsonObject;
