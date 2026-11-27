@@ -77,7 +77,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             }
             if (type == MCPackets.C2S_CHAT || type == MCPackets.C2S_CHAT_COMMAND
                     || type == MCPackets.C2S_CHAT_COMMAND_SIGNED) {
-                logRawChat(type, unknown.data);
+                if (!logRawChat(type, unknown.data)) return false;
             }
             return true;
         }
@@ -97,6 +97,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                 this.logger.logCommand(player, uuid, normalized);
                 publish(new NekoGateEvents.Command(Instant.now(), apiPlayer(), normalized));
                 logWhisperCommand(player, uuid, normalized);
+                if (this.extensionApi != null && this.extensionApi.dispatchCommand(apiPlayer(), normalized)) return false;
             }
         } else {
             String message = readString(packet, "message");
@@ -105,6 +106,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                 this.logger.logCommand(player, uuid, message);
                 publish(new NekoGateEvents.Command(Instant.now(), apiPlayer(), message));
                 logWhisperCommand(player, uuid, message);
+                if (this.extensionApi != null && this.extensionApi.dispatchCommand(apiPlayer(), message)) return false;
             } else {
                 this.logger.logChat(player, uuid, message);
                 publish(new NekoGateEvents.Chat(Instant.now(), apiPlayer(), message));
@@ -308,8 +310,8 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         }
     }
 
-    private void logRawChat(MCPackets type, byte[] data) {
-        if (data == null || data.length == 0) return;
+    private boolean logRawChat(MCPackets type, byte[] data) {
+        if (data == null || data.length == 0) return true;
         try {
             ByteBuf buffer = Unpooled.wrappedBuffer(data);
             String value;
@@ -318,21 +320,24 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             } finally {
                 buffer.release();
             }
-            if (value == null || value.isBlank()) return;
+            if (value == null || value.isBlank()) return true;
 
             String player = playerName();
-            if (player == null) return;
-            if (type == MCPackets.C2S_CHAT) {
+            if (player == null) return true;
+            if (type == MCPackets.C2S_CHAT && !value.startsWith("/")) {
                 this.logger.logChat(player, playerUuid(), value);
                 publish(new NekoGateEvents.Chat(Instant.now(), apiPlayer(), value));
-            } else {
-                String command = value.startsWith("/") ? value : "/" + value;
-                this.logger.logCommand(player, playerUuid(), command);
-                publish(new NekoGateEvents.Command(Instant.now(), apiPlayer(), command));
-                logWhisperCommand(player, playerUuid(), command);
+                return true;
             }
+
+            String command = value.startsWith("/") ? value : "/" + value;
+            this.logger.logCommand(player, playerUuid(), command);
+            publish(new NekoGateEvents.Command(Instant.now(), apiPlayer(), command));
+            logWhisperCommand(player, playerUuid(), command);
+            return this.extensionApi == null || !this.extensionApi.dispatchCommand(apiPlayer(), command);
         } catch (RuntimeException ignored) {
-            // Malformed or version-specific payloads are ignored; the packet still passes through.
+            // Malformed or version-specific payloads must never affect packet forwarding.
+            return true;
         }
     }
 
