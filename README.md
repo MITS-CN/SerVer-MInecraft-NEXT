@@ -47,7 +47,8 @@ Rust 代理负责接入客户端、跟踪连接状态和统计流量；ViaProxy 
 - **Rust 工具链**：安装稳定版 Rust（包含 Cargo）。
 - **Java**：安装可用的 Java 运行环境，并确保 `java` 命令可以从终端执行。
 - **ViaProxy**：首次启动会自动检查并下载 ViaProxy 官方最新成功构建（包含对应版本的 ViaVersion）；若无法联网，可手动将 `ViaProxy.jar` 放在项目根目录。
-- **Gradle 构建环境**：首次启动时，项目会调用 `scripts/build-viaproxy-plugin.ps1`（Windows）或 `scripts/build-viaproxy-plugin.sh`（Linux / macOS）自动构建聊天插件；构建脚本会自动下载 Gradle，无需预装。\n- **Python 3（Linux / macOS）**：用于启动前执行 ViaProxy 官方更新检查；Windows 使用系统 PowerShell。
+- **Gradle 构建环境**：首次启动时，项目会调用 `scripts/build-viaproxy-plugin.ps1`（Windows）或 `scripts/build-viaproxy-plugin.sh`（Linux / macOS）自动构建聊天插件；构建脚本会自动下载 Gradle，无需预装。
+- **Python 3（Linux / macOS）**：用于启动前执行 ViaProxy 官方更新检查；Windows 使用系统 PowerShell。
 
 ## 快速开始
 
