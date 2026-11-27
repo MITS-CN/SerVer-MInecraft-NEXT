@@ -3,7 +3,6 @@ package cn.mits.nekogate;
 import cn.mits.nekogate.api.Component;
 import cn.mits.nekogate.api.DisplayName;
 import cn.mits.nekogate.api.DisplayNameService;
-import cn.mits.nekogate.api.NekoGateAPI;
 import com.viaversion.viaversion.libs.gson.JsonArray;
 import com.viaversion.viaversion.libs.gson.JsonElement;
 import com.viaversion.viaversion.libs.gson.JsonObject;
@@ -11,40 +10,42 @@ import com.viaversion.viaversion.libs.gson.JsonParser;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Thread-safe display-name overrides backed by ./data/name.josn5. */
+/** Thread-safe display-name overrides backed by ./data/name.josn5; keys are player names. */
 final class DisplayNameManager implements DisplayNameService {
     private final Path file;
-    private final NekoGateAPI.PlayerService players;
-    private final Map<UUID, DisplayName> configured = new ConcurrentHashMap<>();
-    private final Map<UUID, DisplayName> runtime = new ConcurrentHashMap<>();
+    private final Map<String, DisplayName> configured = new ConcurrentHashMap<>();
+    private final Map<String, DisplayName> runtime = new ConcurrentHashMap<>();
 
     DisplayNameManager(Path file, NekoGateAPI.PlayerService players) {
         this.file = file;
-        this.players = players;
         try { reload(); } catch (IOException e) {
             System.err.println("[NekoGate] Could not load display names: " + e.getMessage());
         }
     }
 
-    @Override public Optional<DisplayName> find(UUID id) {
-        if (id == null) return Optional.empty();
-        DisplayName value = runtime.get(id);
-        return Optional.ofNullable(value != null ? value : configured.get(id));
-    }
     @Override public Optional<DisplayName> find(String username) {
         if (username == null || username.isBlank()) return Optional.empty();
-        return players.find(username).flatMap(p -> find(p.uuid()));
+        String key = key(username);
+        DisplayName value = runtime.get(key);
+        return Optional.ofNullable(value != null ? value : configured.get(key));
     }
-    @Override public void set(UUID id, DisplayName name) {
-        if (id == null || name == null) throw new IllegalArgumentException("playerId and displayName are required");
-        runtime.put(id, name);
+
+    @Override public void set(String username, DisplayName displayName) {
+        if (username == null || username.isBlank() || displayName == null) {
+            throw new IllegalArgumentException("username and displayName are required");
+        }
+        runtime.put(key(username), displayName);
     }
-    @Override public void clear(UUID id) { if (id != null) runtime.remove(id); }
+
+    @Override public void clear(String username) {
+        if (username != null) runtime.remove(key(username));
+    }
 
     @Override public synchronized void reload() throws IOException {
         if (!Files.exists(file)) {
@@ -60,17 +61,17 @@ final class DisplayNameManager implements DisplayNameService {
         } catch (RuntimeException e) {
             throw new IOException("Invalid display-name configuration: " + e.getMessage(), e);
         }
-        Map<UUID, DisplayName> next = new java.util.HashMap<>();
+
+        Map<String, DisplayName> next = new HashMap<>();
         for (Map.Entry<String, JsonElement> entry : entries.entrySet()) {
-            UUID id;
-            try { id = UUID.fromString(entry.getKey()); } catch (RuntimeException ignored) { continue; }
-            if (!entry.getValue().isJsonObject()) continue;
+            String username = entry.getKey().trim();
+            if (username.isEmpty() || !entry.getValue().isJsonObject()) continue;
             JsonObject value = entry.getValue().getAsJsonObject();
             JsonElement nameElement = value.get("name");
             if (nameElement == null || nameElement.isJsonNull()) continue;
             Component name = readComponent(nameElement);
             if (name.text().isBlank() && name.children().isEmpty()) continue;
-            next.put(id, new DisplayName(
+            next.put(key(username), new DisplayName(
                     readComponent(value.get("prefix")),
                     name,
                     readComponent(value.get("suffix"))
@@ -80,15 +81,20 @@ final class DisplayNameManager implements DisplayNameService {
         configured.putAll(next);
     }
 
-    @Override public Component chatName(UUID id, String username) { return resolve(id, username); }
-    @Override public Component tabName(UUID id, String username) { return resolve(id, username); }
+    @Override public Component chatName(String username) { return resolve(username); }
+    @Override public Component tabName(String username) { return resolve(username); }
 
-    private Component resolve(UUID id, String username) {
-        DisplayName value = find(id).orElse(null);
+    private Component resolve(String username) {
+        DisplayName value = find(username).orElse(null);
         return value == null ? Component.text(username == null ? "" : username)
                 : Component.join(value.prefix(), value.name(), value.suffix());
     }
 
+    private static String key(String username) {
+        return username.toLowerCase(Locale.ROOT);
+    }
+
+    /** Reads both simple components and vanilla-style JSON text components with extra[]. */
     private static Component readComponent(JsonElement element) {
         if (element == null || element.isJsonNull()) return Component.empty();
         if (element.isJsonPrimitive()) {
@@ -123,6 +129,13 @@ final class DisplayNameManager implements DisplayNameService {
         }
         if (booleanValue(object, "bold")) result = result.withBold(true);
         if (booleanValue(object, "italic")) result = result.withItalic(true);
+
+        JsonElement extra = object.get("extra");
+        if (extra != null && extra.isJsonArray()) {
+            java.util.List<Component> children = new java.util.ArrayList<>();
+            for (JsonElement child : extra.getAsJsonArray()) children.add(readComponent(child));
+            result = result.withChildren(children);
+        }
         return result;
     }
 
