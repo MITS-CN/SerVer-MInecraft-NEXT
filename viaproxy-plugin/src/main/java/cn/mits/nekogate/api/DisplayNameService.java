@@ -4,43 +4,53 @@ import java.io.IOException;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Resolves configured and runtime presentation-name overrides by player name. */
+/**
+ * Resolves presentation-name overrides.
+ *
+ * <p>UUID methods are retained as the original API v1.2 contract. New extensions
+ * should prefer the player-name methods; implementations may override them for
+ * name-keyed configuration.</p>
+ */
 public interface DisplayNameService {
-    Optional<DisplayName> find(String username);
-    void set(String username, DisplayName displayName);
-    void clear(String username);
-    void reload() throws IOException;
-    Component chatName(String username);
-    Component tabName(String username);
+    /** Original v1.2 lookup retained for binary and source compatibility. */
+    Optional<DisplayName> find(UUID playerId);
 
-    /**
-     * @deprecated Display-name configuration is keyed by player name. Use {@link #find(String)}.
-     */
-    @Deprecated
-    default Optional<DisplayName> find(UUID playerId) {
+    /** Name-keyed lookup. Default keeps older third-party implementations compatible. */
+    default Optional<DisplayName> find(String username) {
         return Optional.empty();
     }
 
-    /** @deprecated Use {@link #set(String, DisplayName)}. */
-    @Deprecated
-    default void set(UUID playerId, DisplayName displayName) {
-        throw new UnsupportedOperationException("Use player-name based display-name keys");
+    /** Original v1.2 mutation retained for existing extensions. */
+    void set(UUID playerId, DisplayName displayName);
+
+    /** Name-keyed runtime override. */
+    default void set(String username, DisplayName displayName) {
+        throw new UnsupportedOperationException("Name-based display-name updates are not supported");
     }
 
-    /** @deprecated Use {@link #clear(String)}. */
-    @Deprecated
-    default void clear(UUID playerId) {
+    /** Original v1.2 mutation retained for existing extensions. */
+    void clear(UUID playerId);
+
+    /** Name-keyed runtime override removal. */
+    default void clear(String username) {
+        // Older implementations have no name-keyed runtime state.
     }
 
-    /** @deprecated Use {@link #chatName(String)}. */
-    @Deprecated
-    default Component chatName(UUID playerId, String authenticatedUsername) {
-        return chatName(authenticatedUsername);
+    void reload() throws IOException;
+
+    /** Original v1.2 presentation method retained for existing extensions. */
+    Component chatName(UUID playerId, String authenticatedUsername);
+
+    /** Name-keyed presentation method. */
+    default Component chatName(String username) {
+        return Component.text(username == null ? "" : username);
     }
 
-    /** @deprecated Use {@link #tabName(String)}. */
-    @Deprecated
-    default Component tabName(UUID playerId, String authenticatedUsername) {
-        return tabName(authenticatedUsername);
+    /** Original v1.2 presentation method retained for existing extensions. */
+    Component tabName(UUID playerId, String authenticatedUsername);
+
+    /** Name-keyed presentation method. */
+    default Component tabName(String username) {
+        return Component.text(username == null ? "" : username);
     }
 }
