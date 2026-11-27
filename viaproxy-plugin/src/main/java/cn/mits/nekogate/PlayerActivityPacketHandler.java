@@ -799,7 +799,8 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             publish(new NekoGateEvents.Command(Instant.now(), apiPlayer(), safeCommand));
             markLoginAttempt(command);
             logWhisperCommand(player, playerUuid(), command);
-            return this.extensionApi == null || !this.extensionApi.dispatchCommand(apiPlayer(), command);
+            return this.extensionApi == null || !this.extensionApi.dispatchCommand(
+                    apiPlayer(), command, this.authMeAuthenticated);
         } catch (RuntimeException ignored) {
             // Malformed or version-specific payloads must never affect packet forwarding.
             return true;
