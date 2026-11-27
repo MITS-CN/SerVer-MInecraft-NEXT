@@ -480,7 +480,10 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                 String uuid = PacketTypes.readUuid(buffer).toString();
                 this.backendPlayerNames.remove(uuid);
                 Integer entityId = this.backendEntityIds.remove(uuid);
-                if (entityId != null) this.backendEntityNames.remove(entityId);
+                if (entityId != null) {
+                    this.backendEntityNames.remove(entityId);
+                    this.overriddenHeadNameEntities.remove(entityId);
+                }
             }
         } catch (RuntimeException ignored) {
             // Ignore malformed player-list updates; packet forwarding remains untouched.
@@ -606,6 +609,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             for (int i = 0; i < count; i++) {
                 int entityId = PacketTypes.readVarInt(buffer);
                 String username = this.backendEntityNames.remove(entityId);
+                this.overriddenHeadNameEntities.remove(entityId);
                 if (username != null) {
                     this.backendEntityIds.entrySet().removeIf(entry ->
                             entry.getValue() != null && entry.getValue() == entityId);
