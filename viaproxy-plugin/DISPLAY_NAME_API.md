@@ -1,58 +1,88 @@
-# Display Name API v1.2
+# Display Name API v1.3
 
-The Java Extension API keeps its existing v1.1 services and adds
-NekoGateAPI.displayNames(). Existing extension entry points are unchanged.
+The Java Extension API exposes `NekoGateAPI.displayNames()` for configuring
+presentation names. The UUID-based methods from API v1.2 remain available for
+backward compatibility; new configurations and extensions should use player
+usernames as keys.
 
 ## Runtime API
 
+Use the authenticated username directly. This does not require looking up or
+supplying a UUID:
+
 ```java
-UUID playerId = api.players().find("MITS_CN").orElseThrow().uuid();
-api.displayNames().set(playerId, new DisplayName(
+api.displayNames().set("MITS_CN", new DisplayName(
     Component.text("[Admin] "),
-    Component.gradient("MITS_CN", "#ffee00", "#d31027"),
+    Component.gradient("MITS_CN", "#ffee00", "#d31027").withBold(true),
     Component.text(" ★")
 ));
+
+// Remove only the runtime override:
+api.displayNames().clear("MITS_CN");
 ```
 
-The override is presentation-only; the authenticated username and UUID are
-not changed. Runtime overrides take precedence over configured entries.
-Calling clear(UUID) removes the runtime override.
+The override changes presentation only. The authenticated username, UUID,
+skin properties, and player identity are not changed by the API. Runtime
+overrides take precedence over configured entries.
 
 ## Configuration
 
-NekoGate creates ./data/name.josn5 when it does not exist. The file uses
-strict JSON syntax and player UUIDs as keys:
+NekoGate creates `./data/name.josn5` when the file does not exist. Use the
+player's **backend Minecraft username** as the key under `players`:
 
 ```json
 {
   "players": {
-    "00000000-0000-0000-0000-000000000000": {
-      "prefix": {"text": "[Admin] ", "color": "#55FFFF"},
-      "name": {"text": "MITS_CN", "gradient": ["#ffee00", "#d31027"], "bold": true},
+    "MITS_CN": {
+      "prefix": {
+        "text": "[Admin] ",
+        "color": "#55FFFF"
+      },
+      "name": {
+        "text": "MITS_CN",
+        "gradient": ["#ffee00", "#d31027"],
+        "bold": true
+      },
       "suffix": " ★"
     }
   }
 }
 ```
 
-Each of prefix, name, and suffix accepts either a plain string or a
-component object. Component objects support text, color (#RRGGBB),
-gradient (a two-color array), bold, and italic. A gradient takes
-precedence over color. Invalid colors fall back to plain text.
+Username keys are case-insensitive. This is the recommended format because
+the ViaProxy packet handler can read the original backend username from the
+player-info packet for **every player sent by the backend**, including players
+who did not connect through ViaProxy. The viewer receives the rewritten
+packet through the tunnel.
 
-Call api.displayNames().reload() after editing the file. Invalid UUID keys
-and entries without a non-empty name are ignored.
+### Legacy UUID keys
+
+UUID-keyed entries from API v1.2 remain readable for compatibility. However,
+resolving one requires NekoGate's local player service to map that UUID to a
+known ViaProxy player. It cannot reliably resolve a UUID-only entry for an
+arbitrary backend player who is not connected through the proxy. Migrate
+those entries to username keys to cover both tunnel and non-tunnel players.
 
 ## Components
 
-- Component.text(text): plain text.
-- Component.colored(text, "#RRGGBB"): HEX color.
-- Component.gradient(text, start, end): per-Unicode-code-point gradient.
-- Component.join(...): combines styled components.
-- withBold / withItalic: applies text formatting.
+Each of `prefix`, `name`, and `suffix` accepts either a plain string or a
+component object. Component objects support:
 
-For Minecraft 26.3, NekoGate applies the resolved display name to both the
-player-info display-name field (Tab list) and the PLAYER_CHAT sender-name
-component (chat). Packets that do not match the expected layout are forwarded
-unchanged. Authenticated usernames, UUIDs, message bodies, and signatures are
-not modified. The API model does not expose ViaVersion's shaded component classes.
+- `text`: displayed text.
+- `color`: a HEX color such as `#55FFFF`.
+- `gradient`: a two-color array such as `["#ffee00", "#d31027"]`.
+- `bold` and `italic`: boolean formatting.
+- `extra`: nested component array.
+
+A gradient takes precedence over `color`. Invalid colors fall back to plain
+text. Call `api.displayNames().reload()` after editing the file.
+
+## Current protocol behavior
+
+For Minecraft 26.3, the plugin resolves entries by the original backend
+username. It applies the rich component to the player-list display name and
+the chat sender name. The in-world GameProfile name is a plain string with a
+16 UTF-16-code-unit limit, so its formatting is flattened and long values are
+truncated. UUIDs, skin properties, chat signatures, and message bodies are
+not rewritten. Full rich formatting for in-world name tags requires
+Scoreboard Team packet handling and is a separate compatibility concern.
