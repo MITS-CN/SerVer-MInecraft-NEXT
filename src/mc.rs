@@ -1,7 +1,6 @@
 ﻿use std::io::{Read, Write};
 
 use flate2::read::ZlibDecoder;
-use flate2::Compression;
 
 // ============================================================
 // VarInt / Packet
