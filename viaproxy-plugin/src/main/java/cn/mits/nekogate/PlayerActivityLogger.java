@@ -191,6 +191,7 @@ final class PlayerActivityLogger {
     }
 
     void logExtensionEvent(String eventType, Map<String, ?> fields) {
+        if (!this.enabled) return;
         if (eventType == null || !eventType.matches("[A-Za-z0-9_.-]{1,64}")) {
             throw new IllegalArgumentException("eventType must be 1-64 letters, digits, '.', '_' or '-'");
         }
