@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $Repository = 'ViaVersion/ViaProxy'
 $WorkflowId = 72929512
 $TargetPath = [System.IO.Path]::GetFullPath($TargetPath)
