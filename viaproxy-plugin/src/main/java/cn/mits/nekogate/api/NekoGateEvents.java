@@ -15,6 +15,8 @@ public final class NekoGateEvents {
     public record PlayerJoin(Instant timestamp, NekoGateAPI.Player player) implements Event { }
     public record PlayerQuit(Instant timestamp, NekoGateAPI.Player player) implements Event { }
     public record Chat(Instant timestamp, NekoGateAPI.Player player, String message) implements Event { }
+    public record ServerChat(Instant timestamp, NekoGateAPI.Player player, String message,
+                             String senderUuid, String senderName) implements Event { }
     public record Command(Instant timestamp, NekoGateAPI.Player player, String command) implements Event { }
     public record SystemMessage(Instant timestamp, NekoGateAPI.Player player,
                                 String component, boolean overlay) implements Event { }
