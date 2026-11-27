@@ -165,9 +165,9 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                 } else if (type == MCPackets.S2C_PLAYER_INFO_REMOVE) {
                     removeBackendPlayerNames(unknown.data);
                 } else if (type == MCPackets.S2C_ADD_ENTITY) {
-                    trackPlayerEntity(unknown.data, listeners, serverProtocol);
+                    trackPlayerEntity(unknown.data);
                 } else if (type == MCPackets.S2C_SET_ENTITY_DATA) {
-                    reapplyPlayerHeadName(unknown.data, listeners, serverProtocol);
+                    reapplyPlayerHeadName(unknown.data);
                 } else if (type == MCPackets.S2C_REMOVE_ENTITIES) {
                     removePlayerEntities(unknown.data);
                 }
@@ -497,7 +497,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
      * In 26.3 player entities are spawned through Add Entity, which carries the
      * same UUID that was announced in Player Info Update.
      */
-    private void trackPlayerEntity(byte[] data, List<ChannelFutureListener> listeners, int protocolVersion) {
+    private void trackPlayerEntity(byte[] data) {
         if (data == null || data.length == 0 || this.extensionApi == null) return;
         ByteBuf buffer = Unpooled.wrappedBuffer(data);
         try {
@@ -520,7 +520,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
      * Server metadata updates can overwrite an entity's custom name. Re-send
      * the configured value after the backend update so it remains presentation-only.
      */
-    private void reapplyPlayerHeadName(byte[] data, List<ChannelFutureListener> listeners, int protocolVersion) {
+    private void reapplyPlayerHeadName(byte[] data) {
         if (data == null || data.length == 0 || this.extensionApi == null) return;
         ByteBuf buffer = Unpooled.wrappedBuffer(data);
         try {
