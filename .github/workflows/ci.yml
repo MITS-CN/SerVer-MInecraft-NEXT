@@ -34,6 +34,18 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.1.0'
+      - name: Validate auto-updater scripts
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("${{ github.workspace }}\\scripts\\update-viaproxy.ps1", [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            exit 1
+          }
+          python -m py_compile scripts/update-viaproxy.py
+
 
       - name: Build ViaProxy plugin
         run: gradle -p viaproxy-plugin build
