@@ -1,4 +1,4 @@
-# Display Name API v1.3
+# Display Name API v1.4
 
 The Java Extension API exposes `NekoGateAPI.displayNames()` for configuring
 presentation names. The UUID-based methods from API v1.2 remain available for
@@ -81,13 +81,17 @@ text. Call `api.displayNames().reload()` after editing the file.
 
 For Minecraft 26.3, the plugin resolves entries by the original backend
 username. It applies the rich component to the player-list display name and
-the chat sender name. The in-world GameProfile name is a plain string with a
-16 UTF-16-code-unit limit, so configured prefix/name/suffix text is flattened
-and long values are truncated. The plugin also rewrites the player-name
-entries in 26.3 Scoreboard Team packets to keep renamed players associated
-with their original backend teams; backend team prefix/suffix, visibility,
-collision, color, and friendly-fire settings are preserved. Configured
-gradient and per-component formatting are not yet rendered in the in-world
-name tag. Keep the flattened result unique across online players to avoid
-scoreboard-name collisions. UUIDs, skin properties, chat signatures, and
-message bodies are not rewritten.
+the chat sender name. The GameProfile name is always kept as the real backend
+username, so command suggestions and commands such as `/tell` continue to use
+the actual player identity.
+
+The in-world name tag is rendered separately through the player's entity
+metadata (`custom_name` and `custom_name_visible`). This supports the full
+prefix/name/suffix component tree, including colors, gradients, bold, italic,
+and nested `extra` components, without changing the GameProfile name or
+taking over the backend's Scoreboard Team membership. The plugin tracks player
+UUIDs to entity IDs from Add Entity packets and reapplies the configured
+custom name after backend entity-metadata updates. This path is implemented
+for Minecraft 26.3 server packets; actual in-game verification is still
+required. UUIDs, skin properties, chat signatures, and message bodies are
+not rewritten.

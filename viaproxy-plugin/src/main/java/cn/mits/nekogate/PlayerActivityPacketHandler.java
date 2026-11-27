@@ -39,7 +39,8 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     private final PlayerActivityLogger logger;
     private final NekoGateApiImpl extensionApi;
     private final Map<String, String> backendPlayerNames = new ConcurrentHashMap<>();
-    private final Map<String, String> backendProfileNames = new ConcurrentHashMap<>();
+    private final Map<String, Integer> backendEntityIds = new ConcurrentHashMap<>();
+    private final Map<Integer, String> backendEntityNames = new ConcurrentHashMap<>();
     private final AtomicBoolean joined = new AtomicBoolean();
     private final AtomicBoolean joinLogged = new AtomicBoolean();
     private volatile Instant joinedAt;
@@ -137,11 +138,12 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                     unknown.data = rewritePlayerInfoUpdate(unknown.data);
                 } else if (type == MCPackets.S2C_PLAYER_INFO_REMOVE) {
                     removeBackendPlayerNames(unknown.data);
-                } else if (type == MCPackets.S2C_SET_PLAYER_TEAM) {
-                    // Team membership is keyed by GameProfile name, so keep it in
-                    // sync with the rewritten profile name or vanilla team rules
-                    // (prefix/suffix, visibility and collision) stop matching.
-                    unknown.data = rewritePlayerTeam(unknown.data);
+                } else if (type == MCPackets.S2C_ADD_ENTITY) {
+                    trackPlayerEntity(unknown.data, listeners, serverProtocol);
+                } else if (type == MCPackets.S2C_SET_ENTITY_DATA) {
+                    reapplyPlayerHeadName(unknown.data, listeners, serverProtocol);
+                } else if (type == MCPackets.S2C_REMOVE_ENTITIES) {
+                    removePlayerEntities(unknown.data);
                 }
             }
             if (type == MCPackets.S2C_PLAYER_CHAT) {
@@ -288,20 +290,9 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                     if (username != null && !username.isBlank()) {
                         this.backendPlayerNames.put(playerId.toString(), username);
                     }
-                    String headName = profileDisplayName(username);
-                    if (username != null && !username.isBlank() && headName != null) {
-                        this.backendProfileNames.put(username, headName);
-                    } else if (username != null) {
-                        this.backendProfileNames.remove(username);
-                    }
-                    if (headName != null) {
-                        // The Add Player name is the GameProfile name used by the client
-                        // for the player's in-world name tag. Keep the UUID and skin
-                        // properties unchanged; only replace this presentation string.
-                        PacketTypes.writeString(output, headName);
-                    } else {
-                        copyConsumed(input, output, fieldStart);
-                    }
+                    // GameProfile.name is the real backend username. Never rewrite it:
+                    // command suggestions and commands such as /tell use this identity.
+                    copyConsumed(input, output, fieldStart);
 
                     fieldStart = input.readerIndex();
                     int properties = PacketTypes.readVarInt(input);
@@ -374,65 +365,6 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     }
 
     /**
-     * Rewrites player-name entries in 26.3 scoreboard team packets to match the
-     * GameProfile names sent in Player Info Update. Without this, the client would
-     * no longer associate a renamed player with the backend's scoreboard team.
-     *
-     * Team metadata is copied byte-for-byte, preserving backend prefix/suffix,
-     * name-tag visibility, collision rules, color, and friendly flags.
-     */
-    private byte[] rewritePlayerTeam(byte[] data) {
-        if (data == null || data.length == 0 || this.extensionApi == null) return data;
-        ByteBuf input = Unpooled.wrappedBuffer(data);
-        ByteBuf output = Unpooled.buffer(data.length + 64);
-        try {
-            String teamName = PacketTypes.readString(input, 32767);
-            int method = input.readUnsignedByte();
-            PacketTypes.writeString(output, teamName);
-            output.writeByte(method);
-
-            if (method == 0 || method == 2) {
-                int metadataStart = input.readerIndex();
-                Types.TAG.read(input); // Team display name
-                Types.TAG.read(input); // Team prefix
-                Types.TAG.read(input); // Team suffix
-                PacketTypes.readVarInt(input); // Name-tag visibility
-                PacketTypes.readVarInt(input); // Collision rule
-                if (input.readBoolean()) PacketTypes.readVarInt(input); // Optional team color
-                input.readByte(); // Friendly flags
-                copyConsumed(input, output, metadataStart);
-            }
-
-            if (method == 0 || method == 3 || method == 4) {
-                int count = PacketTypes.readVarInt(input);
-                if (count < 0 || count > 4096) return data;
-                PacketTypes.writeVarInt(output, count);
-                for (int i = 0; i < count; i++) {
-                    String member = PacketTypes.readString(input, 32767);
-                    // Prefer the alias actually sent in Add Player. This keeps
-                    // later team removals consistent even if the config is reloaded.
-                    String profileName = this.backendProfileNames.get(member);
-                    if (profileName == null) profileName = profileDisplayName(member);
-                    PacketTypes.writeString(output, profileName == null ? member : profileName);
-                }
-            } else if (method != 1 && method != 2) {
-                return data;
-            }
-
-            if (input.isReadable()) return data;
-            byte[] rewritten = new byte[output.readableBytes()];
-            output.getBytes(output.readerIndex(), rewritten);
-            return rewritten;
-        } catch (RuntimeException ignored) {
-            // Unknown or malformed team layouts must pass through untouched.
-            return data;
-        } finally {
-            input.release();
-            output.release();
-        }
-    }
-
-    /**
      * In 26.3 PLAYER_CHAT carries senderName as an NBT component. Replacing that
      * presentation field changes the chat label without touching the sender UUID,
      * message signature, body, chat type, or target name.
@@ -482,42 +414,6 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         }
     }
 
-    /**
-     * Resolves the configured display name for the player's GameProfile name.
-     * The protocol field is a profile-name string (maximum 16 UTF-16 code units), not
-     * a text component, so formatting is flattened while the UUID and textures
-     * remain untouched.
-     */
-    private String profileDisplayName(String username) {
-        if (username == null || username.isBlank() || this.extensionApi == null) return null;
-        var displayName = this.extensionApi.displayNames().find(username).orElse(null);
-        if (displayName == null) return null;
-
-        StringBuilder plain = new StringBuilder();
-        appendPlainText(displayName.prefix(), plain);
-        appendPlainText(displayName.name(), plain);
-        appendPlainText(displayName.suffix(), plain);
-        String value = plain.toString();
-        if (value.isBlank()) return null;
-
-        if (value.length() > 16) {
-            int end = 16;
-            // Do not leave an unpaired high surrogate at the truncation boundary.
-            if (Character.isHighSurrogate(value.charAt(end - 1))
-                    && Character.isLowSurrogate(value.charAt(end))) {
-                end--;
-            }
-            value = value.substring(0, end);
-        }
-        return value;
-    }
-
-    private static void appendPlainText(Component component, StringBuilder output) {
-        if (component == null) return;
-        output.append(component.text());
-        for (Component child : component.children()) appendPlainText(child, output);
-    }
-
     private static Tag toTag(Component component) {
         CompoundTag tag = new CompoundTag();
         tag.putString("text", component.text());
@@ -544,11 +440,105 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             int count = PacketTypes.readVarInt(buffer);
             if (count < 0 || count > 4096) return;
             for (int i = 0; i < count; i++) {
-                String username = this.backendPlayerNames.remove(PacketTypes.readUuid(buffer).toString());
-                if (username != null) this.backendProfileNames.remove(username);
+                String uuid = PacketTypes.readUuid(buffer).toString();
+                this.backendPlayerNames.remove(uuid);
+                Integer entityId = this.backendEntityIds.remove(uuid);
+                if (entityId != null) this.backendEntityNames.remove(entityId);
             }
         } catch (RuntimeException ignored) {
             // Ignore malformed player-list updates; packet forwarding remains untouched.
+        } finally {
+            buffer.release();
+        }
+    }
+
+    /**
+     * Tracks backend player entity IDs without changing their GameProfile names.
+     * In 26.3 player entities are spawned through Add Entity, which carries the
+     * same UUID that was announced in Player Info Update.
+     */
+    private void trackPlayerEntity(byte[] data, List<ChannelFutureListener> listeners, int protocolVersion) {
+        if (data == null || data.length == 0 || this.extensionApi == null) return;
+        ByteBuf buffer = Unpooled.wrappedBuffer(data);
+        try {
+            int entityId = PacketTypes.readVarInt(buffer);
+            UUID playerId = PacketTypes.readUuid(buffer);
+            String username = this.backendPlayerNames.get(playerId.toString());
+            if (username == null) return;
+
+            this.backendEntityIds.put(playerId.toString(), entityId);
+            this.backendEntityNames.put(entityId, username);
+            queuePlayerHeadName(entityId, username, listeners, protocolVersion);
+        } catch (RuntimeException ignored) {
+            // Unknown or malformed spawn packets must not affect forwarding.
+        } finally {
+            buffer.release();
+        }
+    }
+
+    /**
+     * Server metadata updates can overwrite an entity's custom name. Re-send
+     * the configured value after the backend update so it remains presentation-only.
+     */
+    private void reapplyPlayerHeadName(byte[] data, List<ChannelFutureListener> listeners, int protocolVersion) {
+        if (data == null || data.length == 0 || this.extensionApi == null) return;
+        ByteBuf buffer = Unpooled.wrappedBuffer(data);
+        try {
+            int entityId = PacketTypes.readVarInt(buffer);
+            String username = this.backendEntityNames.get(entityId);
+            if (username != null) queuePlayerHeadName(entityId, username, listeners, protocolVersion);
+        } catch (RuntimeException ignored) {
+            // Ignore malformed metadata packets.
+        } finally {
+            buffer.release();
+        }
+    }
+
+    private void queuePlayerHeadName(int entityId, String username,
+                                     List<ChannelFutureListener> listeners, int protocolVersion) {
+        var displayName = this.extensionApi.displayNames().find(username).orElse(null);
+        if (displayName == null) return;
+
+        int packetId = MCPackets.S2C_SET_ENTITY_DATA.getId(protocolVersion);
+        if (packetId < 0) return;
+        ByteBuf output = Unpooled.buffer();
+        try {
+            PacketTypes.writeVarInt(output, entityId);
+            output.writeByte(2); // Entity custom_name metadata index
+            PacketTypes.writeVarInt(output, 6); // Optional component serializer
+            Types.OPTIONAL_TAG.write(output, toTag(Component.join(
+                    displayName.prefix(), displayName.name(), displayName.suffix())));
+            output.writeByte(3); // Entity custom_name_visible metadata index
+            PacketTypes.writeVarInt(output, 8); // Boolean serializer
+            output.writeBoolean(true);
+            output.writeByte(0xFF); // Metadata terminator
+
+            byte[] metadata = new byte[output.readableBytes()];
+            output.getBytes(output.readerIndex(), metadata);
+            listeners.add(future -> future.channel().writeAndFlush(new UnknownPacket(packetId, metadata)));
+        } catch (RuntimeException ignored) {
+            // Never let an invalid component prevent the original packet from forwarding.
+        } finally {
+            output.release();
+        }
+    }
+
+    private void removePlayerEntities(byte[] data) {
+        if (data == null || data.length == 0) return;
+        ByteBuf buffer = Unpooled.wrappedBuffer(data);
+        try {
+            int count = PacketTypes.readVarInt(buffer);
+            if (count < 0 || count > 4096) return;
+            for (int i = 0; i < count; i++) {
+                int entityId = PacketTypes.readVarInt(buffer);
+                String username = this.backendEntityNames.remove(entityId);
+                if (username != null) {
+                    this.backendEntityIds.entrySet().removeIf(entry ->
+                            entry.getValue() != null && entry.getValue() == entityId);
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // Ignore malformed entity-removal packets.
         } finally {
             buffer.release();
         }
