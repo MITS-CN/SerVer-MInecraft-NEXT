@@ -54,21 +54,23 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
         this.extensionEvents = new NekoGateEventBus();
         NekoGatePermissionManager permissions = new NekoGatePermissionManager(dataDirectory.resolve("permissions.properties"));
         NekoGateCommandManager commands = new NekoGateCommandManager(permissions);
+        NekoGateApiImpl.PlayerService playerService = new NekoGateApiImpl.PlayerService() {
+            @Override public List<NekoGateAPI.Player> onlinePlayers() {
+                return ViaProxyChatPlugin.this.onlinePlayers();
+            }
+            @Override public Optional<NekoGateAPI.Player> find(String nameOrUuid) {
+                return ViaProxyChatPlugin.this.findOnlinePlayer(nameOrUuid);
+            }
+            @Override public boolean sendMessage(String playerName, String message) {
+                return ViaProxyChatPlugin.this.sendPlayerMessage(playerName, message);
+            }
+            @Override public boolean kick(String playerName, String reason) {
+                return ViaProxyChatPlugin.this.kickPlayer(playerName, reason);
+            }
+        };
+        DisplayNameManager displayNames = new DisplayNameManager(dataDirectory.resolve("name.josn5"), playerService);
         this.extensionApi = new NekoGateApiImpl(dataDirectory, this.extensionEvents,
-                new NekoGateApiImpl.PlayerService() {
-                    @Override public List<NekoGateAPI.Player> onlinePlayers() {
-                        return ViaProxyChatPlugin.this.onlinePlayers();
-                    }
-                    @Override public Optional<NekoGateAPI.Player> find(String nameOrUuid) {
-                        return ViaProxyChatPlugin.this.findOnlinePlayer(nameOrUuid);
-                    }
-                    @Override public boolean sendMessage(String playerName, String message) {
-                        return ViaProxyChatPlugin.this.sendPlayerMessage(playerName, message);
-                    }
-                    @Override public boolean kick(String playerName, String reason) {
-                        return ViaProxyChatPlugin.this.kickPlayer(playerName, reason);
-                    }
-                }, this.activityLogger::logExtensionEvent, commands, permissions);
+                playerService, this.activityLogger::logExtensionEvent, commands, permissions, displayNames);
         this.extensionLoader = new NekoGateExtensionLoader();
         this.extensionLoader.load(dataDirectory.resolve("extensions"), this.extensionApi);
         ViaProxy.EVENT_MANAGER.register(new ActivityListener());
