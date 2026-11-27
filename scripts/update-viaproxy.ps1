@@ -60,7 +60,44 @@ try {
     New-Item -ItemType Directory -Force -Path $TempRoot | Out-Null
     $jarPath = Join-Path $TempRoot $asset.name
     Write-Host "[ViaProxy] 正在下载 $($asset.name)..."
-    Invoke-WebRequest -Uri $asset.browser_download_url -Headers @{ 'User-Agent' = $Headers['User-Agent'] } -OutFile $jarPath
+    # Use WebClient instead of Invoke-WebRequest: Windows PowerShell 5.1's
+    # response parser can throw IndexOutOfRangeException on some GitHub CDN responses.
+    $downloadSucceeded = $false
+    $lastDownloadError = $null
+    for ($attempt = 1; $attempt -le 3 -and -not $downloadSucceeded; $attempt++) {
+        $webClient = New-Object System.Net.WebClient
+        try {
+            $webClient.Headers.Add('User-Agent', $Headers['User-Agent'])
+            $webClient.DownloadFile([Uri]$asset.browser_download_url, $jarPath)
+
+            if (-not (Test-Path $jarPath -PathType Leaf)) {
+                throw '下载请求结束，但目标文件不存在。'
+            }
+
+            $downloadedSize = (Get-Item -LiteralPath $jarPath).Length
+            if ($downloadedSize -le 0) {
+                throw '下载的 ViaProxy JAR 是空文件。'
+            }
+            if ($asset.size -and $downloadedSize -ne [long]$asset.size) {
+                throw "下载文件大小不匹配：期望 $($asset.size) 字节，实际 $downloadedSize 字节。"
+            }
+
+            $downloadSucceeded = $true
+        } catch {
+            $lastDownloadError = $_
+            Remove-Item -LiteralPath $jarPath -Force -ErrorAction SilentlyContinue
+            if ($attempt -lt 3) {
+                Write-Warning "[ViaProxy] 下载失败（第 $attempt 次），3 秒后重试：$($_.Exception.Message)"
+                Start-Sleep -Seconds 3
+            }
+        } finally {
+            $webClient.Dispose()
+        }
+    }
+
+    if (-not $downloadSucceeded) {
+        throw "ViaProxy JAR 下载失败，已重试 3 次。最后错误：$($lastDownloadError.Exception.Message)"
+    }
 
     if ($asset.digest -match '^sha256:(.+)$') {
         $expectedDigest = $Matches[1].ToLowerInvariant()
