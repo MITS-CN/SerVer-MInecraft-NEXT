@@ -20,12 +20,18 @@ final class BrigadierCommandTree {
             return packetData;
         }
 
+        List<String> names = commandNames.stream()
+                .filter(name -> name != null && name.matches("[a-z0-9_-]{1,32}"))
+                .distinct()
+                .toList();
+        if (names.isEmpty()) return packetData;
+
         ByteBuf input = Unpooled.wrappedBuffer(packetData);
-        ByteBuf output = Unpooled.buffer(packetData.length + commandNames.size() * 40 + 16);
+        ByteBuf output = Unpooled.buffer(packetData.length + names.size() * 40 + 16);
         try {
             int nodeCount = PacketTypes.readVarInt(input);
             if (nodeCount < 1 || nodeCount > MAX_NODE_COUNT
-                    || commandNames.size() > MAX_NODE_COUNT - nodeCount - 1) {
+                    || names.size() > MAX_NODE_COUNT - nodeCount - 1) {
                 return packetData;
             }
 
@@ -39,12 +45,11 @@ final class BrigadierCommandTree {
                 return packetData;
             }
 
-            PacketTypes.writeVarInt(output, nodeCount + commandNames.size() + 1);
+            PacketTypes.writeVarInt(output, nodeCount + names.size() + 1);
             output.writeBytes(packetData, nodesStart, rootIndexStart - nodesStart);
 
             int firstAddedNode = nodeCount;
-            for (String name : commandNames) {
-                if (name == null || !name.matches("[a-z0-9_-]{1,32}")) continue;
+            for (String name : names) {
                 // Brigadier node type 1 = literal; no children or redirect.
                 output.writeByte(0x01);
                 PacketTypes.writeVarInt(output, 0);
@@ -56,10 +61,10 @@ final class BrigadierCommandTree {
             output.writeByte(0x00);
             PacketTypes.writeVarInt(output, commandNames.size() + 1);
             PacketTypes.writeVarInt(output, originalRootIndex);
-            for (int i = 0; i < commandNames.size(); i++) {
+            for (int i = 0; i < names.size(); i++) {
                 PacketTypes.writeVarInt(output, firstAddedNode + i);
             }
-            PacketTypes.writeVarInt(output, nodeCount + commandNames.size());
+            PacketTypes.writeVarInt(output, nodeCount + names.size());
             byte[] rewritten = new byte[output.readableBytes()];
             output.readBytes(rewritten);
             return rewritten;
