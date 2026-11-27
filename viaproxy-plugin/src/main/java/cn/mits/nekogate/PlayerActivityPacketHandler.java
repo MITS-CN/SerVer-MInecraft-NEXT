@@ -28,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Observes player activity and movement without changing or cancelling packets.
+ * Observes player activity and movement; registered extension commands may be consumed before backend forwarding.
  */
 final class PlayerActivityPacketHandler extends PacketHandler {
     private final PlayerActivityLogger logger;
