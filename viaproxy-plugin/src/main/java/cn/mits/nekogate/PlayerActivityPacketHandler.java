@@ -392,7 +392,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                 Types.TAG.read(input); // Team suffix
                 PacketTypes.readVarInt(input); // Name-tag visibility
                 PacketTypes.readVarInt(input); // Collision rule
-                PacketTypes.readVarInt(input); // Team color
+                if (input.readBoolean()) PacketTypes.readVarInt(input); // Optional team color
                 input.readByte(); // Friendly flags
                 copyConsumed(input, output, metadataStart);
             }
