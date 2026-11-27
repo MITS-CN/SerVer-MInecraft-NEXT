@@ -11,6 +11,12 @@ import com.viaversion.nbt.tag.ListTag;
 import com.viaversion.nbt.tag.Tag;
 import com.viaversion.viaversion.api.minecraft.item.data.ChatType;
 import com.viaversion.viaversion.api.type.Types;
+import com.viaversion.viaversion.api.Via;
+import com.viaversion.viaversion.api.minecraft.entitydata.EntityData;
+import com.viaversion.viaversion.api.protocol.packet.VersionedPacketTransformer;
+import com.viaversion.viaversion.api.protocol.version.ProtocolVersion;
+import com.viaversion.viaversion.api.type.types.version.VersionedTypes;
+import com.viaversion.viaversion.protocols.v26_2to26_3.packet.ClientboundPackets26_3;
 import net.raphimc.netminecraft.constants.ConnectionState;
 import net.raphimc.netminecraft.constants.MCPackets;
 import net.raphimc.netminecraft.constants.MCVersion;
@@ -437,7 +443,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         }
     }
 
-    private static Tag toTag(Component component) {
+    private static CompoundTag toTag(Component component) {
         CompoundTag tag = new CompoundTag();
         tag.putString("text", component.text());
         if (component.color() != null) tag.putString("color", component.color());
@@ -517,32 +523,53 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         }
     }
 
+    private static volatile VersionedPacketTransformer<ClientboundPackets26_3, ?> headNameTransformer;
+
+    private static VersionedPacketTransformer<ClientboundPackets26_3, ?> headNameTransformer() {
+        VersionedPacketTransformer<ClientboundPackets26_3, ?> current = headNameTransformer;
+        if (current == null) synchronized (PlayerActivityPacketHandler.class) {
+            current = headNameTransformer;
+            if (current == null) {
+                current = Via.getManager().getProtocolManager().createPacketTransformer(
+                        ProtocolVersion.v26_3, ClientboundPackets26_3.class, null);
+                headNameTransformer = current;
+            }
+        }
+        return current;
+    }
+
     private void queuePlayerHeadName(int entityId, String username,
                                      List<ChannelFutureListener> listeners, int protocolVersion) {
         var displayName = this.extensionApi.displayNames().find(username).orElse(null);
         if (displayName == null) return;
 
-        int packetId = MCPackets.S2C_SET_ENTITY_DATA.getId(protocolVersion);
-        if (packetId < 0) return;
-        ByteBuf output = Unpooled.buffer();
         try {
-            PacketTypes.writeVarInt(output, entityId);
-            output.writeByte(2); // Entity custom_name metadata index
-            PacketTypes.writeVarInt(output, 6); // Optional component serializer
-            Types.OPTIONAL_TAG.write(output, toTag(Component.join(
-                    displayName.prefix(), displayName.name(), displayName.suffix())));
-            output.writeByte(3); // Entity custom_name_visible metadata index
-            PacketTypes.writeVarInt(output, 8); // Boolean serializer
-            output.writeBoolean(true);
-            output.writeByte(0xFF); // Metadata terminator
+            var user = this.proxyConnection.getUserConnection();
+            if (user == null) {
+                System.err.println("[NekoGate][HEAD-NAME] Cannot inject custom name: ViaVersion UserConnection is unavailable");
+                return;
+            }
 
-            byte[] metadata = new byte[output.readableBytes()];
-            output.getBytes(output.readerIndex(), metadata);
-            listeners.add(future -> future.channel().writeAndFlush(new UnknownPacket(packetId, metadata)));
-        } catch (RuntimeException ignored) {
-            // Never let an invalid component prevent the original packet from forwarding.
-        } finally {
-            output.release();
+            CompoundTag component = toTag(Component.join(
+                    displayName.prefix(), displayName.name(), displayName.suffix()));
+            var metadata = List.of(
+                    new EntityData(2, VersionedTypes.V26_3.entityDataTypes().byId(6), component),
+                    new EntityData(3, VersionedTypes.V26_3.entityDataTypes().byId(8), true)
+            );
+
+            // Build the packet in the backend's 26.3 format and let ViaVersion
+            // translate its packet ID, metadata serializer IDs, and component
+            // representation for this individual client (including 1.20.1).
+            boolean sent = headNameTransformer().scheduleSend(user, ClientboundPackets26_3.SET_ENTITY_DATA, packet -> {
+                packet.write(Types.VAR_INT, entityId);
+                packet.write(VersionedTypes.V26_3.entityDataList(), metadata);
+            });
+            if (!sent) {
+                System.err.println("[NekoGate][HEAD-NAME] ViaVersion cancelled custom-name packet for entity " + entityId);
+            }
+        } catch (Throwable error) {
+            System.err.println("[NekoGate][HEAD-NAME] Failed to inject custom name for entity "
+                    + entityId + " (" + username + "): " + error);
         }
     }
 
