@@ -23,7 +23,8 @@ final class NekoGatePermissionManager implements NekoGateAPI.PermissionService {
             if (Files.notExists(file)) {
                 Files.writeString(file,
                         "# NekoGate extension permissions\n" +
-                        "# One line per player UUID: <uuid>=permission.node,another.node\n" +
+                        "# Use player name (recommended for tunnel/offline-mode networks) or UUID as the key.\n" +
+                        "# Examples: Steve=nekogate.nametag and <uuid>=example.hello\n" +
                         "# '*' grants every permission; 'nekogate.example.*' grants that namespace.\n" +
                         "# Permissions are denied by default. Restart ViaProxy after editing.\n",
                         StandardCharsets.UTF_8);
@@ -38,19 +39,36 @@ final class NekoGatePermissionManager implements NekoGateAPI.PermissionService {
 
     @Override
     public boolean has(NekoGateAPI.Player player, String permission) {
-        if (player == null || player.uuid() == null || permission == null || permission.isBlank()) return false;
-        String configured = this.grants.getProperty(player.uuid().toString());
-        if (configured == null || configured.isBlank()) return false;
+        if (player == null || permission == null || permission.isBlank()) return false;
 
-        Set<String> nodes = Arrays.stream(configured.split(","))
-                .map(value -> value.trim().toLowerCase(Locale.ROOT))
-                .filter(value -> !value.isEmpty())
-                .collect(Collectors.toSet());
+        // UUID grants remain supported for installations with stable authenticated UUIDs.
+        // Name grants also work on tunnel/offline-mode connections where UUID may be absent
+        // or may not be stable across authentication boundaries.
+        Set<String> nodes = new java.util.HashSet<>();
+        if (player.uuid() != null) {
+            addNodes(nodes, this.grants.getProperty(player.uuid().toString()));
+        }
+        if (player.name() != null && !player.name().isBlank()) {
+            for (String key : this.grants.stringPropertyNames()) {
+                if (key.equalsIgnoreCase(player.name())) {
+                    addNodes(nodes, this.grants.getProperty(key));
+                }
+            }
+        }
+        if (nodes.isEmpty()) return false;
         String requested = permission.toLowerCase(Locale.ROOT);
         if (nodes.contains("*") || nodes.contains(requested)) return true;
         for (String node : nodes) {
             if (node.endsWith(".*") && requested.startsWith(node.substring(0, node.length() - 1))) return true;
         }
         return false;
+    }
+
+    private static void addNodes(Set<String> nodes, String configured) {
+        if (configured == null || configured.isBlank()) return;
+        Arrays.stream(configured.split(","))
+                .map(value -> value.trim().toLowerCase(Locale.ROOT))
+                .filter(value -> !value.isEmpty())
+                .forEach(nodes::add);
     }
 }
