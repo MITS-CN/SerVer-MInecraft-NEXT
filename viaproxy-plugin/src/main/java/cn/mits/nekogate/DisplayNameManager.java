@@ -52,8 +52,14 @@ final class DisplayNameManager implements DisplayNameService {
             if (parent != null) Files.createDirectories(parent);
             Files.writeString(file, "{\n  \"players\": {}\n}\n");
         }
-        JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
-        JsonObject entries = root.has("players") ? root.getAsJsonObject("players") : root;
+        JsonObject root;
+        JsonObject entries;
+        try {
+            root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
+            entries = root.has("players") ? root.getAsJsonObject("players") : root;
+        } catch (RuntimeException e) {
+            throw new IOException("Invalid display-name configuration: " + e.getMessage(), e);
+        }
         Map<UUID, DisplayName> next = new java.util.HashMap<>();
         for (Map.Entry<String, JsonElement> entry : entries.entrySet()) {
             UUID id;
