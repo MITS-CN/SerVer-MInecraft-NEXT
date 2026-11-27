@@ -1,7 +1,10 @@
 package cn.mits.nekogate;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufInputStream;
 import io.netty.buffer.Unpooled;
+import com.viaversion.nbt.io.TagRegistry;
+import com.viaversion.nbt.limiter.TagLimiter;
 import io.netty.channel.ChannelFutureListener;
 import com.viaversion.nbt.tag.CompoundTag;
 import com.viaversion.nbt.tag.ListTag;
@@ -53,6 +56,11 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     private volatile Instant loginAttemptAt;
     private volatile long loginDiagnosticPackets;
     private volatile long loginDiagnosticBytes;
+    private volatile long lastNbtDiagnosticAt;
+
+    private static final int MAX_SYSTEM_MESSAGE_NBT_BYTES = 64 * 1024;
+    private static final int MAX_SYSTEM_MESSAGE_NBT_DEPTH = 64;
+    private static final int MAX_SYSTEM_MESSAGE_NBT_TAGS = 8192;
 
     PlayerActivityPacketHandler(PlayerActivityLogger logger, ProxyConnection connection, NekoGateApiImpl extensionApi) {
         super(connection);
@@ -565,10 +573,33 @@ final class PlayerActivityPacketHandler extends PacketHandler {
 
     private void logRawSystemMessage(byte[] data) {
         if (data == null || data.length == 0) return;
+        if (data.length > MAX_SYSTEM_MESSAGE_NBT_BYTES) {
+            logNbtDiagnostic(data.length, "packet_too_large");
+            return;
+        }
+
         ByteBuf buffer = Unpooled.wrappedBuffer(data);
         try {
-            Object component = Types.TAG.read(buffer);
+            // Do not use Types.TAG here: its default 2 MiB budget is shared with
+            // neither this audit path nor the available heap. A smaller per-message
+            // limiter prevents a single system-chat packet from allocating a huge array.
+            int tagId = buffer.readUnsignedByte();
+            Tag component = tagId == 0 ? null : TagRegistry.read(
+                    tagId,
+                    new ByteBufInputStream(buffer),
+                    TagLimiter.create(
+                            MAX_SYSTEM_MESSAGE_NBT_BYTES,
+                            MAX_SYSTEM_MESSAGE_NBT_DEPTH,
+                            MAX_SYSTEM_MESSAGE_NBT_TAGS
+                    ),
+                    0
+            );
             boolean overlay = buffer.readBoolean();
+            if (buffer.isReadable()) {
+                logNbtDiagnostic(data.length, "trailing_data");
+                return;
+            }
+
             String serialized = component == null ? "" : component.toString();
             if (!serialized.isBlank()) {
                 this.logger.logSystemMessage(playerName(), playerUuid(), serialized, overlay);
@@ -579,11 +610,22 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                     publish(new NekoGateEvents.Whisper(Instant.now(), apiPlayer(), "received", null, null, serialized));
                 }
             }
-        } catch (RuntimeException ignored) {
-            // Ignore unsupported component encodings without affecting packet forwarding.
+        } catch (java.io.IOException | RuntimeException exception) {
+            logNbtDiagnostic(data.length, "invalid_nbt_" + exception.getClass().getSimpleName());
+            // Audit parsing is best-effort and must never affect packet forwarding.
         } finally {
             buffer.release();
         }
+    }
+
+    private void logNbtDiagnostic(int packetBytes, String reason) {
+        long now = System.currentTimeMillis();
+        long previous = this.lastNbtDiagnosticAt;
+        if (now - previous < 10_000) return;
+        this.lastNbtDiagnosticAt = now;
+        System.err.println("[NekoGate][NBT-DIAG] time=" + Instant.now()
+                + " player=" + (playerName() == null ? "<unknown>" : playerName())
+                + " packetBytes=" + packetBytes + " reason=" + reason);
     }
 
     private void logWhisperCommand(String sender, String senderUuid, String command) {
