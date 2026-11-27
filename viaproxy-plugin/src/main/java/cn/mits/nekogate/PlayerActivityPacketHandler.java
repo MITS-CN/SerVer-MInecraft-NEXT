@@ -584,6 +584,13 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             // neither this audit path nor the available heap. A smaller per-message
             // limiter prevents a single system-chat packet from allocating a huge array.
             int tagId = buffer.readUnsignedByte();
+            int payloadStart = buffer.readerIndex();
+            if (tagId != 0) {
+                // Validate every declared collection length before ViaNBT can allocate
+                // an array or collection from an untrusted length prefix.
+                scanNbtPayload(buffer, tagId, 0, new int[]{0});
+                buffer.readerIndex(payloadStart);
+            }
             Tag component = tagId == 0 ? null : TagRegistry.read(
                     tagId,
                     new ByteBufInputStream(buffer),
@@ -616,6 +623,83 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         } finally {
             buffer.release();
         }
+    }
+
+    /**
+     * Allocation-free NBT preflight. ViaNBT's limiter accounts for declared array
+     * bytes, but this scan makes the length checks explicit before any Tag objects
+     * or backing arrays are created by the real parser.
+     *
+     * The input is the network NBT form used by Minecraft components: root tag ID,
+     * followed by the root payload (without a root name).
+     */
+    private static void scanNbtPayload(ByteBuf input, int tagId, int depth, int[] tagCount) {
+        if (depth > MAX_SYSTEM_MESSAGE_NBT_DEPTH) {
+            throw new IllegalArgumentException("nbt_depth_limit");
+        }
+        if (++tagCount[0] > MAX_SYSTEM_MESSAGE_NBT_TAGS) {
+            throw new IllegalArgumentException("nbt_tag_limit");
+        }
+
+        switch (tagId) {
+            case 1 -> input.skipBytes(1); // Byte
+            case 2 -> input.skipBytes(2); // Short
+            case 3, 5 -> input.skipBytes(4); // Int / Float
+            case 4, 6 -> input.skipBytes(8); // Long / Double
+            case 7 -> { // Byte array
+                int length = input.readInt();
+                checkNbtArrayLength(length, 1, input.readableBytes());
+                input.skipBytes(length);
+            }
+            case 8 -> skipNbtString(input);
+            case 9 -> { // List
+                int childType = input.readUnsignedByte();
+                int length = input.readInt();
+                if (length < 0 || length > MAX_SYSTEM_MESSAGE_NBT_TAGS - tagCount[0]) {
+                    throw new IllegalArgumentException("nbt_list_length_" + length);
+                }
+                if (length > 0 && (childType < 1 || childType > 12)) {
+                    throw new IllegalArgumentException("nbt_list_type_" + childType);
+                }
+                for (int i = 0; i < length; i++) {
+                    scanNbtPayload(input, childType, depth + 1, tagCount);
+                }
+            }
+            case 10 -> { // Compound
+                while (true) {
+                    int childType = input.readUnsignedByte();
+                    if (childType == 0) break;
+                    if (childType < 1 || childType > 12) {
+                        throw new IllegalArgumentException("nbt_tag_type_" + childType);
+                    }
+                    skipNbtString(input);
+                    scanNbtPayload(input, childType, depth + 1, tagCount);
+                }
+            }
+            case 11 -> { // Int array
+                int length = input.readInt();
+                checkNbtArrayLength(length, Integer.BYTES, input.readableBytes());
+                input.skipBytes(length * Integer.BYTES);
+            }
+            case 12 -> { // Long array
+                int length = input.readInt();
+                checkNbtArrayLength(length, Long.BYTES, input.readableBytes());
+                input.skipBytes(length * Long.BYTES);
+            }
+            default -> throw new IllegalArgumentException("nbt_tag_type_" + tagId);
+        }
+    }
+
+    private static void checkNbtArrayLength(int length, int elementBytes, int readableBytes) {
+        if (length < 0 || length > MAX_SYSTEM_MESSAGE_NBT_BYTES / elementBytes
+                || (long) length * elementBytes > readableBytes) {
+            throw new IllegalArgumentException("nbt_array_length_" + length);
+        }
+    }
+
+    private static void skipNbtString(ByteBuf input) {
+        int length = input.readUnsignedShort();
+        input.skipBytes(length);
     }
 
     private void logNbtDiagnostic(int packetBytes, String reason) {
