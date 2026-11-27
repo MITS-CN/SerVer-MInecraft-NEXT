@@ -190,6 +190,27 @@ final class PlayerActivityLogger {
         append(event);
     }
 
+    void logExtensionEvent(String eventType, Map<String, ?> fields) {
+        if (eventType == null || !eventType.matches("[A-Za-z0-9_.-]{1,64}")) {
+            throw new IllegalArgumentException("eventType must be 1-64 letters, digits, '.', '_' or '-'");
+        }
+        JsonObject event = new JsonObject();
+        event.addProperty("timestamp", Instant.now().toString());
+        event.addProperty("event", "extension:" + eventType);
+        if (fields != null) {
+            fields.forEach((key, value) -> {
+                if (key == null || !key.matches("[A-Za-z0-9_.-]{1,64}")
+                        || key.equals("timestamp") || key.equals("event")) return;
+                if (value == null) event.add(key, com.viaversion.viaversion.libs.gson.JsonNull.INSTANCE);
+                else if (value instanceof Boolean bool) event.addProperty(key, bool);
+                else if (value instanceof Number number) event.addProperty(key, number);
+                else if (value instanceof Character character) event.addProperty(key, character);
+                else event.addProperty(key, String.valueOf(value));
+            });
+        }
+        append(event);
+    }
+
     private static JsonObject event(String type, String player, String uuid) {
         JsonObject event = new JsonObject();
         event.addProperty("timestamp", Instant.now().toString());
