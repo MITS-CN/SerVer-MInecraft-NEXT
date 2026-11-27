@@ -1,0 +1,31 @@
+name: NekoGate AuthMe bridge
+
+on:
+  pull_request:
+    paths:
+      - "viaproxy-plugin/**"
+      - "authme-bridge/**"
+      - ".github/workflows/authme-bridge.yml"
+  push:
+    branches: [main, "fix/**"]
+    paths:
+      - "viaproxy-plugin/**"
+      - "authme-bridge/**"
+      - ".github/workflows/authme-bridge.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.1.0"
+      - name: Build ViaProxy plugin
+        run: gradle -p viaproxy-plugin clean build
+      - name: Build AuthMe bridge
+        run: gradle -p authme-bridge clean build
