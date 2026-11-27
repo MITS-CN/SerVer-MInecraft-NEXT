@@ -27,3 +27,10 @@ jar {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
     }
 }
+
+tasks.register('apiJar', Jar) {
+    archiveBaseName = 'nekogate-api'
+    archiveVersion = project.version
+    from sourceSets.main.output
+    include 'cn/mits/nekogate/api/**'
+}
