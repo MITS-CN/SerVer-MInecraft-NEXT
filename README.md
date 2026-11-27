@@ -46,8 +46,9 @@ Rust 代理负责接入客户端、跟踪连接状态和统计流量；ViaProxy 
 
 - **Rust 工具链**：安装稳定版 Rust（包含 Cargo）。
 - **Java**：安装可用的 Java 运行环境，并确保 `java` 命令可以从终端执行。
-- **ViaProxy**：将 `ViaProxy.jar` 或 `ViaProxy-3.4.14.jar` 放在项目根目录。
-- **Gradle 构建环境**：首次启动时，项目会调用 `scripts/build-viaproxy-plugin.ps1`（Windows）或 `scripts/build-viaproxy-plugin.sh`（Linux / macOS）自动构建聊天插件。请按对应脚本的要求准备 Gradle 环境。
+- **ViaProxy**：首次启动会自动检查并下载 ViaProxy 官方最新成功构建（包含对应版本的 ViaVersion）；若无法联网，可手动将 `ViaProxy.jar` 放在项目根目录。
+- **Gradle 构建环境**：首次启动时，项目会调用 `scripts/build-viaproxy-plugin.ps1`（Windows）或 `scripts/build-viaproxy-plugin.sh`（Linux / macOS）自动构建聊天插件；构建脚本会自动下载 Gradle，无需预装。
+- **Python 3.7+（Linux / macOS）**：用于启动前执行 ViaProxy 官方更新检查；Windows 使用系统 PowerShell。
 
 ## 快速开始
 
@@ -58,12 +59,9 @@ git clone https://github.com/MITS-CN/SerVer-MInecraft-NEXT.git
 cd SerVer-MInecraft-NEXT
 ```
 
-### 2. 放置 ViaProxy
+### 2. ViaProxy 自动更新
 
-下载 ViaProxy，并将 JAR 放在项目根目录，文件名使用以下任意一种：
-
-- `ViaProxy.jar`
-- `ViaProxy-3.4.14.jar`
+首次启动会自动下载官方最新成功构建。若服务器无法联网，可手动将 `ViaProxy.jar` 或 `ViaProxy-3.4.14.jar` 放在项目根目录。
 
 ### 3. 启动
 
@@ -71,7 +69,7 @@ cd SerVer-MInecraft-NEXT
 cargo run --release
 ```
 
-首次启动时，程序会尝试自动构建聊天插件、将插件复制到 `plugins/`，然后启动 ViaProxy。构建产物和运行日志会生成在项目目录中。
+首次启动时，程序会先检查 ViaProxy 官方最新成功构建；如有更新，会下载并校验构建产物，备份旧 JAR 后替换。之后自动构建聊天插件、将插件复制到 `plugins/`，再启动 ViaProxy。更新检查默认每 24 小时执行一次，网络不可用时会继续使用本地旧版本。\n\n如需临时禁用 ViaProxy 自动更新，可设置环境变量 `NEKOGATE_DISABLE_VIAPROXY_AUTO_UPDATE=1`。
 
 如果希望直接运行编译后的程序：
 
