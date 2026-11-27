@@ -618,7 +618,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                 }
             }
         } catch (java.io.IOException | RuntimeException exception) {
-            logNbtDiagnostic(data.length, "invalid_nbt_" + exception.getClass().getSimpleName());
+            logNbtDiagnostic(data.length, "invalid_nbt_" + exception.getClass().getSimpleName()\n                    + (exception.getMessage() == null ? "" : "_" + exception.getMessage()));
             // Audit parsing is best-effort and must never affect packet forwarding.
         } finally {
             buffer.release();
