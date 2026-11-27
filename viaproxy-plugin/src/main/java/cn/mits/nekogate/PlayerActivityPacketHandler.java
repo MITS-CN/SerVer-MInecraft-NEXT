@@ -414,7 +414,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
 
     /**
      * Resolves the configured display name for the player's GameProfile name.
-     * The protocol field is a profile-name string (maximum 16 code points), not
+     * The protocol field is a profile-name string (maximum 16 UTF-16 code units), not
      * a text component, so formatting is flattened while the UUID and textures
      * remain untouched.
      */
@@ -430,9 +430,14 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         String value = plain.toString();
         if (value.isBlank()) return null;
 
-        int codePoints = value.codePointCount(0, value.length());
-        if (codePoints > 16) {
-            value = value.substring(0, value.offsetByCodePoints(0, 16));
+        if (value.length() > 16) {
+            int end = 16;
+            // Do not leave an unpaired high surrogate at the truncation boundary.
+            if (Character.isHighSurrogate(value.charAt(end - 1))
+                    && Character.isLowSurrogate(value.charAt(end))) {
+                end--;
+            }
+            value = value.substring(0, end);
         }
         return value;
     }
