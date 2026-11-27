@@ -32,3 +32,59 @@ Set `logging.enabled=true` and restart ViaProxy to enable it. Player-originated 
 Join and leave events include the last observed dimension, X/Y/Z coordinates, and yaw/pitch when available. Dimension changes are logged as separate `dimension_change` events. Coordinates are observed from client movement packets; the initial join location may only become available after the client sends its first movement packet. Unsupported or unavailable fields are omitted. Location logging stores session and dimension-change snapshots, not every movement packet.
 
 Chat messages are stored verbatim, and command entries represent commands observed at the proxy rather than confirmed backend execution. Backend player-chat entries use the sender UUID because the clientbound player-chat packet does not carry a plain sender-name field. Protect the log file and establish an appropriate retention policy.
+
+
+## Java Extension API (API v1)
+
+NekoGate can load trusted third-party Java extensions from:
+
+    plugins/NekoGate/extensions/
+
+Place extension JARs in that directory and restart ViaProxy. Extensions are discovered with Java's `ServiceLoader`; each JAR must contain:
+
+    META-INF/services/cn.mits.nekogate.api.NekoGateExtension
+
+The file contains the fully qualified class name of each extension provider (one per line). Providers implement `NekoGateExtension` and receive the public `NekoGateAPI` instance in `onEnable`. `onDisable` is called during shutdown. Event subscriptions should be closed in `onDisable`.
+
+### Build the API
+
+Requires JDK 17+ and Gradle:
+
+    gradle -p viaproxy-plugin apiJar
+
+The standalone compile-time API artifact is:
+
+    viaproxy-plugin/build/libs/nekogate-api-1.0.0.jar
+
+Compile your extension against this JAR (for example, Gradle `compileOnly`) and do not shade or bundle it into your extension. The API package is versioned independently using `NekoGateAPI.API_VERSION`.
+
+### Available services and events
+
+- `api.players().onlinePlayers()` and `find(nameOrUuid)` return player snapshots.
+- `api.players().sendMessage(name, message)` and `kick(name, reason)` expose basic player actions.
+- `api.events().subscribe(EventType.class, listener)` subscribes to events and returns an `AutoCloseable` subscription.
+- `api.audit().log(type, fields)` appends a custom `extension:<type>` JSONL record to the player activity log. The global `logging.enabled` setting must be enabled.
+- Core events: `PlayerJoin`, `PlayerQuit`, `Chat`, `ServerChat`, `Command`, `SystemMessage`, and `Whisper`.
+
+Example listener:
+
+```java
+public final class WelcomeExtension implements NekoGateExtension {
+    private NekoGateAPI.Subscription subscription;
+
+    @Override
+    public void onEnable(NekoGateAPI api) {
+        subscription = api.events().subscribe(NekoGateEvents.PlayerJoin.class, event -> {
+            api.players().sendMessage(event.player().name(), "Welcome!");
+            api.audit().log("welcome_sent", Map.of("player", event.player().name()));
+        });
+    }
+
+    @Override
+    public void onDisable() {
+        if (subscription != null) subscription.close();
+    }
+}
+```
+
+Extensions run inside the ViaProxy process with the same operating-system permissions as NekoGate. Only install JARs from sources you trust. API v1 is intentionally small; new methods and event types will be added compatibly where possible.

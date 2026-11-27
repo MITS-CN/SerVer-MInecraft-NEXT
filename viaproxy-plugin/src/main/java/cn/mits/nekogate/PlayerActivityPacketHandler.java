@@ -13,6 +13,9 @@ import net.raphimc.netminecraft.packet.PacketTypes;
 import net.raphimc.netminecraft.packet.UnknownPacket;
 import net.raphimc.viaproxy.proxy.packethandler.PacketHandler;
 import net.raphimc.viaproxy.proxy.session.ProxyConnection;
+import cn.mits.nekogate.api.NekoGateAPI;
+import cn.mits.nekogate.api.NekoGateEvents;
+
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -29,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 final class PlayerActivityPacketHandler extends PacketHandler {
     private final PlayerActivityLogger logger;
+    private final NekoGateApiImpl extensionApi;
     private final Map<String, String> backendPlayerNames = new ConcurrentHashMap<>();
     private final AtomicBoolean joined = new AtomicBoolean();
     private final AtomicBoolean joinLogged = new AtomicBoolean();
@@ -40,9 +44,19 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     private volatile Float yaw;
     private volatile Float pitch;
 
-    PlayerActivityPacketHandler(PlayerActivityLogger logger, ProxyConnection connection) {
+    PlayerActivityPacketHandler(PlayerActivityLogger logger, ProxyConnection connection, NekoGateApiImpl extensionApi) {
         super(connection);
         this.logger = logger;
+        this.extensionApi = extensionApi;
+    }
+
+    private NekoGateAPI.Player apiPlayer() {
+        var profile = this.proxyConnection.getGameProfile();
+        return profile == null ? null : new NekoGateAPI.Player(profile.getId(), profile.getName());
+    }
+
+    private void publish(Object event) {
+        if (this.extensionApi != null) this.extensionApi.publish(event);
     }
 
     @Override
@@ -81,6 +95,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             if (command != null && !command.isBlank()) {
                 String normalized = command.startsWith("/") ? command : "/" + command;
                 this.logger.logCommand(player, uuid, normalized);
+                publish(new NekoGateEvents.Command(Instant.now(), apiPlayer(), normalized));
                 logWhisperCommand(player, uuid, normalized);
             }
         } else {
@@ -88,9 +103,11 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             if (message == null || message.isBlank()) return true;
             if (message.startsWith("/")) {
                 this.logger.logCommand(player, uuid, message);
+                publish(new NekoGateEvents.Command(Instant.now(), apiPlayer(), message));
                 logWhisperCommand(player, uuid, message);
             } else {
                 this.logger.logChat(player, uuid, message);
+                publish(new NekoGateEvents.Chat(Instant.now(), apiPlayer(), message));
             }
         }
         return true;
@@ -113,10 +130,10 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                     removeBackendPlayerNames(unknown.data);
                 }
             }
-            if (this.logger.isServerChatLoggingEnabled() && type == MCPackets.S2C_PLAYER_CHAT) {
+            if (type == MCPackets.S2C_PLAYER_CHAT) {
                 logRawServerChat(unknown.data, serverProtocol);
             }
-            if (this.logger.isSystemMessageLoggingEnabled() && type == MCPackets.S2C_SYSTEM_CHAT) {
+            if (type == MCPackets.S2C_SYSTEM_CHAT) {
                 logRawSystemMessage(unknown.data);
             }
             if (this.logger.isLocationLoggingEnabled()
@@ -129,6 +146,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             String player = playerName();
             if (player != null && this.joined.compareAndSet(false, true)) {
                 this.joinedAt = Instant.now();
+                publish(new NekoGateEvents.PlayerJoin(Instant.now(), apiPlayer()));
                 logJoinIfReady();
             }
         }
@@ -141,6 +159,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
 
         String player = playerName();
         if (player == null) return;
+        publish(new NekoGateEvents.PlayerQuit(Instant.now(), apiPlayer()));
         if (this.joinLogged.compareAndSet(false, true)) {
             this.logger.logJoin(player, playerUuid(), start, this.dimension, this.x, this.y, this.z, this.yaw, this.pitch);
         }
@@ -168,7 +187,9 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                 }
                 String message = PacketTypes.readString(buffer, 256);
                 long messageTimestamp = buffer.readLong();
-                this.logger.logServerChat(sender.toString(), this.backendPlayerNames.get(sender.toString()), message, messageTimestamp);
+                String senderName = this.backendPlayerNames.get(sender.toString());
+                this.logger.logServerChat(sender.toString(), senderName, message, messageTimestamp);
+                publish(new NekoGateEvents.ServerChat(Instant.now(), apiPlayer(), message, sender.toString(), senderName));
             } finally {
                 buffer.release();
             }
@@ -261,9 +282,11 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             String serialized = component == null ? "" : component.toString();
             if (!serialized.isBlank()) {
                 this.logger.logSystemMessage(playerName(), playerUuid(), serialized, overlay);
+                publish(new NekoGateEvents.SystemMessage(Instant.now(), apiPlayer(), serialized, overlay));
                 // Vanilla /msg, /tell and /w responses use these translation keys.
                 if (serialized.contains("commands.message.display.incoming")) {
                     this.logger.logReceivedWhisper(playerName(), playerUuid(), serialized);
+                    publish(new NekoGateEvents.Whisper(Instant.now(), apiPlayer(), "received", null, null, serialized));
                 }
             }
         } catch (RuntimeException ignored) {
@@ -280,6 +303,8 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         ).matcher(value);
         if (matcher.matches()) {
             this.logger.logWhisper(sender, senderUuid, matcher.group(1), matcher.group(2), "sent");
+            publish(new NekoGateEvents.Whisper(Instant.now(), apiPlayer(), "sent",
+                    matcher.group(1), matcher.group(2), null));
         }
     }
 
@@ -299,9 +324,11 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             if (player == null) return;
             if (type == MCPackets.C2S_CHAT) {
                 this.logger.logChat(player, playerUuid(), value);
+                publish(new NekoGateEvents.Chat(Instant.now(), apiPlayer(), value));
             } else {
                 String command = value.startsWith("/") ? value : "/" + value;
                 this.logger.logCommand(player, playerUuid(), command);
+                publish(new NekoGateEvents.Command(Instant.now(), apiPlayer(), command));
                 logWhisperCommand(player, playerUuid(), command);
             }
         } catch (RuntimeException ignored) {
