@@ -792,6 +792,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     }
 
     private void logLoginDiagnostic(String event, String details) {
+        if (!this.logger.isLoginDiagnosticsEnabled()) return;
         String player = playerName();
         System.err.println("[NekoGate][LOGIN-DIAG] time=" + Instant.now()
                 + " event=" + event + " player=" + (player == null ? "<unknown>" : player)
