@@ -39,6 +39,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     private final PlayerActivityLogger logger;
     private final NekoGateApiImpl extensionApi;
     private final Map<String, String> backendPlayerNames = new ConcurrentHashMap<>();
+    private final Map<String, String> backendProfileNames = new ConcurrentHashMap<>();
     private final AtomicBoolean joined = new AtomicBoolean();
     private final AtomicBoolean joinLogged = new AtomicBoolean();
     private volatile Instant joinedAt;
@@ -136,6 +137,11 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                     unknown.data = rewritePlayerInfoUpdate(unknown.data);
                 } else if (type == MCPackets.S2C_PLAYER_INFO_REMOVE) {
                     removeBackendPlayerNames(unknown.data);
+                } else if (type == MCPackets.S2C_SET_PLAYER_TEAM) {
+                    // Team membership is keyed by GameProfile name, so keep it in
+                    // sync with the rewritten profile name or vanilla team rules
+                    // (prefix/suffix, visibility and collision) stop matching.
+                    unknown.data = rewritePlayerTeam(unknown.data);
                 }
             }
             if (type == MCPackets.S2C_PLAYER_CHAT) {
@@ -283,6 +289,11 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                         this.backendPlayerNames.put(playerId.toString(), username);
                     }
                     String headName = profileDisplayName(username);
+                    if (username != null && !username.isBlank() && headName != null) {
+                        this.backendProfileNames.put(username, headName);
+                    } else if (username != null) {
+                        this.backendProfileNames.remove(username);
+                    }
                     if (headName != null) {
                         // The Add Player name is the GameProfile name used by the client
                         // for the player's in-world name tag. Keep the UUID and skin
@@ -355,6 +366,65 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             return rewritten;
         } catch (RuntimeException ignored) {
             // Malformed or unsupported packet layouts are forwarded unchanged.
+            return data;
+        } finally {
+            input.release();
+            output.release();
+        }
+    }
+
+    /**
+     * Rewrites player-name entries in 26.3 scoreboard team packets to match the
+     * GameProfile names sent in Player Info Update. Without this, the client would
+     * no longer associate a renamed player with the backend's scoreboard team.
+     *
+     * Team metadata is copied byte-for-byte, preserving backend prefix/suffix,
+     * name-tag visibility, collision rules, color, and friendly flags.
+     */
+    private byte[] rewritePlayerTeam(byte[] data) {
+        if (data == null || data.length == 0 || this.extensionApi == null) return data;
+        ByteBuf input = Unpooled.wrappedBuffer(data);
+        ByteBuf output = Unpooled.buffer(data.length + 64);
+        try {
+            String teamName = PacketTypes.readString(input, 32767);
+            int method = input.readUnsignedByte();
+            PacketTypes.writeString(output, teamName);
+            output.writeByte(method);
+
+            if (method == 0 || method == 2) {
+                int metadataStart = input.readerIndex();
+                Types.TAG.read(input); // Team display name
+                Types.TAG.read(input); // Team prefix
+                Types.TAG.read(input); // Team suffix
+                PacketTypes.readVarInt(input); // Name-tag visibility
+                PacketTypes.readVarInt(input); // Collision rule
+                if (input.readBoolean()) PacketTypes.readVarInt(input); // Optional team color
+                input.readByte(); // Friendly flags
+                copyConsumed(input, output, metadataStart);
+            }
+
+            if (method == 0 || method == 3 || method == 4) {
+                int count = PacketTypes.readVarInt(input);
+                if (count < 0 || count > 4096) return data;
+                PacketTypes.writeVarInt(output, count);
+                for (int i = 0; i < count; i++) {
+                    String member = PacketTypes.readString(input, 32767);
+                    // Prefer the alias actually sent in Add Player. This keeps
+                    // later team removals consistent even if the config is reloaded.
+                    String profileName = this.backendProfileNames.get(member);
+                    if (profileName == null) profileName = profileDisplayName(member);
+                    PacketTypes.writeString(output, profileName == null ? member : profileName);
+                }
+            } else if (method != 1 && method != 2) {
+                return data;
+            }
+
+            if (input.isReadable()) return data;
+            byte[] rewritten = new byte[output.readableBytes()];
+            output.getBytes(output.readerIndex(), rewritten);
+            return rewritten;
+        } catch (RuntimeException ignored) {
+            // Unknown or malformed team layouts must pass through untouched.
             return data;
         } finally {
             input.release();
@@ -474,7 +544,8 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             int count = PacketTypes.readVarInt(buffer);
             if (count < 0 || count > 4096) return;
             for (int i = 0; i < count; i++) {
-                this.backendPlayerNames.remove(PacketTypes.readUuid(buffer).toString());
+                String username = this.backendPlayerNames.remove(PacketTypes.readUuid(buffer).toString());
+                if (username != null) this.backendProfileNames.remove(username);
             }
         } catch (RuntimeException ignored) {
             // Ignore malformed player-list updates; packet forwarding remains untouched.
