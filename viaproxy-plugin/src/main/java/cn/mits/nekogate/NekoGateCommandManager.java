@@ -77,7 +77,8 @@ final class NekoGateCommandManager implements NekoGateAPI.CommandRegistry {
     }
 
     /** Returns true when the input belongs to a registered extension command. */
-    boolean dispatch(NekoGateAPI.Player player, String input, Consumer<String> reply) {
+    boolean dispatch(NekoGateAPI.Player player, String input, Consumer<String> reply,
+                      boolean authenticated) {
         if (player == null || player.name() == null || input == null) return false;
         List<String> tokens = tokenize(input);
         if (tokens.isEmpty()) return false;
@@ -90,6 +91,10 @@ final class NekoGateCommandManager implements NekoGateAPI.CommandRegistry {
         if (registration == null) return false;
 
         Consumer<String> safeReply = reply == null ? ignored -> { } : reply;
+        if (!authenticated) {
+            safeReply.accept("§cYou must log in with AuthMe before using extension commands.");
+            return true;
+        }
         if (!this.permissions.has(player, registration.permission())) {
             safeReply.accept("§cYou do not have permission: " + registration.permission());
             return true;

@@ -40,10 +40,10 @@ final class NekoGateApiImpl implements NekoGateAPI {
     Map<String, List<String>> visibleCommands(NekoGateAPI.Player player) {
         return this.commands.visibleCommands(player);
     }
-    boolean dispatchCommand(NekoGateAPI.Player player, String input) {
+    boolean dispatchCommand(NekoGateAPI.Player player, String input, boolean authenticated) {
         return this.commands.dispatch(player, input, message -> {
             if (player != null && player.name() != null) this.players.sendMessage(player.name(), message);
-        });
+        }, authenticated);
     }
     interface PlayerService extends NekoGateAPI.PlayerService { }
     interface AuditService extends NekoGateAPI.AuditService { }

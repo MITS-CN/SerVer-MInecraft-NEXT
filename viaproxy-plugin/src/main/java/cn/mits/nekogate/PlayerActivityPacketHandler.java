@@ -53,6 +53,8 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     private volatile Double z;
     private volatile Float yaw;
     private volatile Float pitch;
+    // Fail closed: only a backend AuthMe bridge message can enable extension commands.
+    private volatile boolean authMeAuthenticated;
     private volatile Instant loginAttemptAt;
     private volatile long loginDiagnosticPackets;
     private volatile long loginDiagnosticBytes;
@@ -115,7 +117,8 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                 this.logger.logCommand(player, uuid, normalized);
                 publish(new NekoGateEvents.Command(Instant.now(), apiPlayer(), normalized));
                 logWhisperCommand(player, uuid, normalized);
-                if (this.extensionApi != null && this.extensionApi.dispatchCommand(apiPlayer(), normalized)) return false;
+                if (this.extensionApi != null && this.extensionApi.dispatchCommand(
+                        apiPlayer(), normalized, this.authMeAuthenticated)) return false;
             }
         } else {
             String message = readString(packet, "message");
@@ -124,7 +127,8 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                 this.logger.logCommand(player, uuid, message);
                 publish(new NekoGateEvents.Command(Instant.now(), apiPlayer(), message));
                 logWhisperCommand(player, uuid, message);
-                if (this.extensionApi != null && this.extensionApi.dispatchCommand(apiPlayer(), message)) return false;
+                if (this.extensionApi != null && this.extensionApi.dispatchCommand(
+                        apiPlayer(), message, this.authMeAuthenticated)) return false;
             } else {
                 this.logger.logChat(player, uuid, message);
                 publish(new NekoGateEvents.Chat(Instant.now(), apiPlayer(), message));
@@ -143,6 +147,9 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                     serverProtocol,
                     unknown.packetId
             );
+            if (type == MCPackets.S2C_CUSTOM_PAYLOAD && consumeAuthMeStatus(unknown.data)) {
+                return false; // Internal bridge messages must never reach the Minecraft client.
+            }
             if (type == MCPackets.S2C_COMMANDS && this.extensionApi != null) {
                 byte[] rewritten = BrigadierCommandTree.appendCommands(
                         unknown.data, this.extensionApi.visibleCommands(apiPlayer()));
@@ -190,6 +197,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     }
 
     void onDisconnect() {
+        this.authMeAuthenticated = false;
         if (this.loginAttemptAt != null) {
             logLoginDiagnostic("CONNECTION_CLOSED", "packets=" + this.loginDiagnosticPackets
                     + " bytes=" + this.loginDiagnosticBytes);
@@ -205,6 +213,40 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         }
         this.logger.logLeave(player, playerUuid(), start, Instant.now(),
                 this.dimension, this.x, this.y, this.z, this.yaw, this.pitch);
+    }
+
+    private boolean consumeAuthMeStatus(byte[] data) {
+        if (data == null || data.length == 0) return false;
+        ByteBuf buffer = Unpooled.wrappedBuffer(data);
+        try {
+            String channel = PacketTypes.readString(buffer, 128);
+            if (!"nekogate:auth".equals(channel)) return false;
+
+            // Payload v1: [version: u8][authenticated: u8].
+            if (buffer.readableBytes() != 2) {
+                System.err.println("[NekoGate][AUTH] Rejected malformed AuthMe bridge payload from "
+                        + playerName());
+                return true;
+            }
+            int version = buffer.readUnsignedByte();
+            int state = buffer.readUnsignedByte();
+            if (version != 1 || (state != 0 && state != 1)) {
+                System.err.println("[NekoGate][AUTH] Rejected unsupported AuthMe bridge payload from "
+                        + playerName());
+                return true;
+            }
+
+            boolean authenticated = state == 1;
+            this.authMeAuthenticated = authenticated;
+            System.out.println("[NekoGate][AUTH] AuthMe state updated: player=" + playerName()
+                    + " authenticated=" + authenticated);
+            return true;
+        } catch (RuntimeException error) {
+            System.err.println("[NekoGate][AUTH] Could not decode AuthMe bridge payload: " + error);
+            return false;
+        } finally {
+            buffer.release();
+        }
     }
 
     private void logRawServerChat(byte[] data, int protocolVersion) {
@@ -757,7 +799,8 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             publish(new NekoGateEvents.Command(Instant.now(), apiPlayer(), safeCommand));
             markLoginAttempt(command);
             logWhisperCommand(player, playerUuid(), command);
-            return this.extensionApi == null || !this.extensionApi.dispatchCommand(apiPlayer(), command);
+            return this.extensionApi == null || !this.extensionApi.dispatchCommand(
+                    apiPlayer(), command, this.authMeAuthenticated);
         } catch (RuntimeException ignored) {
             // Malformed or version-specific payloads must never affect packet forwarding.
             return true;
