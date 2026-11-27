@@ -258,8 +258,9 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     }
 
     /**
-     * Rewrites only the optional display-name component in 26.3 player-info updates.
-     * All other fields are copied byte-for-byte so ViaVersion can translate the packet normally.
+     * Rewrites the profile name used for the in-world player name tag and the optional
+     * display-name component used by the player list. UUIDs, skin properties, chat
+     * sessions, and all unrelated fields are preserved for ViaVersion translation.
      */
     private byte[] rewritePlayerInfoUpdate(byte[] data) {
         if (data == null || data.length == 0 || this.extensionApi == null) return data;
