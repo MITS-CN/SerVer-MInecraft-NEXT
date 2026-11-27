@@ -17,6 +17,8 @@ import net.raphimc.viaproxy.plugins.ViaProxyPlugin;
 import net.raphimc.viaproxy.plugins.events.ConnectEvent;
 import net.lenni0451.lambdaevents.EventHandler;
 import net.raphimc.viaproxy.proxy.session.ProxyConnection;
+import cn.mits.nekogate.api.NekoGateAPI;
+
 
 import java.io.*;
 import java.net.*;
@@ -26,6 +28,9 @@ import java.nio.file.Path;
 import java.sql.*;
 import java.time.Instant;
 import java.util.Set;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -38,10 +43,32 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
     private volatile Connection database;
     private final Object databaseLock = new Object();
     private volatile PlayerActivityLogger activityLogger;
+    private volatile NekoGateEventBus extensionEvents;
+    private volatile NekoGateApiImpl extensionApi;
+    private volatile NekoGateExtensionLoader extensionLoader;
 
     @Override
     public void onEnable() {
-        this.activityLogger = new PlayerActivityLogger(Path.of("plugins", "NekoGate"));
+        Path dataDirectory = Path.of("plugins", "NekoGate");
+        this.activityLogger = new PlayerActivityLogger(dataDirectory);
+        this.extensionEvents = new NekoGateEventBus();
+        this.extensionApi = new NekoGateApiImpl(dataDirectory, this.extensionEvents,
+                new NekoGateApiImpl.PlayerService() {
+                    @Override public List<NekoGateAPI.Player> onlinePlayers() {
+                        return ViaProxyChatPlugin.this.onlinePlayers();
+                    }
+                    @Override public Optional<NekoGateAPI.Player> find(String nameOrUuid) {
+                        return ViaProxyChatPlugin.this.findOnlinePlayer(nameOrUuid);
+                    }
+                    @Override public boolean sendMessage(String playerName, String message) {
+                        return ViaProxyChatPlugin.this.sendPlayerMessage(playerName, message);
+                    }
+                    @Override public boolean kick(String playerName, String reason) {
+                        return ViaProxyChatPlugin.this.kickPlayer(playerName, reason);
+                    }
+                }, this.activityLogger::logExtensionEvent);
+        this.extensionLoader = new NekoGateExtensionLoader();
+        this.extensionLoader.load(dataDirectory.resolve("extensions"), this.extensionApi);
         ViaProxy.EVENT_MANAGER.register(new ActivityListener());
         openDatabase();
         int port = readPort();
@@ -69,6 +96,10 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
         this.running.set(false);
         ServerSocket server = this.serverSocket;
         if (server != null) try { server.close(); } catch (IOException ignored) { }
+        NekoGateExtensionLoader loader = this.extensionLoader;
+        if (loader != null) loader.close();
+        NekoGateEventBus events = this.extensionEvents;
+        if (events != null) events.clear();
         closeDatabase();
     }
 
@@ -311,6 +342,47 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
         return response;
     }
 
+    private List<NekoGateAPI.Player> onlinePlayers() {
+        List<NekoGateAPI.Player> result = new ArrayList<>();
+        for (Channel channel : ViaProxy.getConnectedClients()) {
+            ProxyConnection connection = connection(channel);
+            if (connection == null || connection.getGameProfile() == null) continue;
+            var profile = connection.getGameProfile();
+            if (profile.getName() != null) result.add(new NekoGateAPI.Player(profile.getId(), profile.getName()));
+        }
+        return List.copyOf(result);
+    }
+
+    private Optional<NekoGateAPI.Player> findOnlinePlayer(String target) {
+        if (target == null || target.isBlank()) return Optional.empty();
+        return onlinePlayers().stream().filter(player ->
+                player.name().equalsIgnoreCase(target)
+                        || (player.uuid() != null && player.uuid().toString().equalsIgnoreCase(target)))
+                .findFirst();
+    }
+
+    private boolean sendPlayerMessage(String target, String message) {
+        if (message == null) return false;
+        for (Channel channel : ViaProxy.getConnectedClients()) {
+            ProxyConnection connection = connection(channel);
+            if (connection != null && isPlayer(connection, target)) return sendChat(connection, message);
+        }
+        return false;
+    }
+
+    private boolean kickPlayer(String target, String reason) {
+        for (Channel channel : ViaProxy.getConnectedClients()) {
+            ProxyConnection connection = connection(channel);
+            if (connection == null || !isPlayer(connection, target)) continue;
+            try { connection.kickClient(reason == null ? "Kicked by an extension" : reason); return true; }
+            catch (Throwable error) {
+                System.err.println("[NekoGate] Extension kick failed: " + error);
+                return false;
+            }
+        }
+        return false;
+    }
+
     private void banEnforcementLoop() {
         while (this.running.get()) {
             for (Channel channel : ViaProxy.getConnectedClients()) {
@@ -422,7 +494,7 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
             if (logger == null || !logger.isEnabled()) return;
 
             ProxyConnection connection = event.getProxyConnection();
-            PlayerActivityPacketHandler handler = new PlayerActivityPacketHandler(logger, connection);
+            PlayerActivityPacketHandler handler = new PlayerActivityPacketHandler(logger, connection, extensionApi);
             connection.getPacketHandlers().add(handler);
             connection.getC2P().closeFuture().addListener(future -> handler.onDisconnect());
         }
