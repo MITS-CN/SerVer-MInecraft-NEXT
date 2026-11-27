@@ -621,7 +621,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     private void logNbtDiagnostic(int packetBytes, String reason) {
         long now = System.currentTimeMillis();
         long previous = this.lastNbtDiagnosticAt;
-        if (now - previous < 10_000 || !this.proxyConnection.isConnected()) return;
+        if (now - previous < 10_000) return;
         this.lastNbtDiagnosticAt = now;
         System.err.println("[NekoGate][NBT-DIAG] time=" + Instant.now()
                 + " player=" + (playerName() == null ? "<unknown>" : playerName())
