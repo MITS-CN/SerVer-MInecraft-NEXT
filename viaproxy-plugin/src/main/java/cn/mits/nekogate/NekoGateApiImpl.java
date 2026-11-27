@@ -34,6 +34,10 @@ final class NekoGateApiImpl implements NekoGateAPI {
     @Override public DisplayNameService displayNames() { return this.displayNames; }
 
     void publish(Object event) { this.events.publish(event); }
+
+    java.util.List<String> visibleCommandNames(NekoGateAPI.Player player) {
+        return this.commands.visibleCommandNames(player);
+    }
     boolean dispatchCommand(NekoGateAPI.Player player, String input) {
         return this.commands.dispatch(player, input, message -> {
             if (player != null && player.name() != null) this.players.sendMessage(player.name(), message);

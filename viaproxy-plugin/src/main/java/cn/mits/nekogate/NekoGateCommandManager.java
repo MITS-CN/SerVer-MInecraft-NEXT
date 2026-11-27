@@ -44,6 +44,16 @@ final class NekoGateCommandManager implements NekoGateAPI.CommandRegistry {
         return () -> this.commands.remove(key, registration);
     }
 
+    /** Returns extension commands visible to this player in the client command tree. */
+    List<String> visibleCommandNames(NekoGateAPI.Player player) {
+        if (player == null) return List.of();
+        return this.commands.entrySet().stream()
+                .filter(entry -> this.permissions.has(player, entry.getValue().permission()))
+                .map(java.util.Map.Entry::getKey)
+                .sorted()
+                .toList();
+    }
+
     /** Returns true when the input belongs to a registered extension command. */
     boolean dispatch(NekoGateAPI.Player player, String input, Consumer<String> reply) {
         if (player == null || player.name() == null || input == null) return false;
