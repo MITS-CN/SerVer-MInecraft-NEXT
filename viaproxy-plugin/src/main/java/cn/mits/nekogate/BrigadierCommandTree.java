@@ -53,7 +53,6 @@ final class BrigadierCommandTree {
 
             // A synthetic root keeps the backend root intact as a child, so every
             // backend command remains available alongside proxy-owned commands.
-            int validAdded = output.readableBytes(); // only used to keep the output path explicit
             output.writeByte(0x00);
             PacketTypes.writeVarInt(output, commandNames.size() + 1);
             PacketTypes.writeVarInt(output, originalRootIndex);
@@ -61,7 +60,9 @@ final class BrigadierCommandTree {
                 PacketTypes.writeVarInt(output, firstAddedNode + i);
             }
             PacketTypes.writeVarInt(output, nodeCount + commandNames.size());
-            return output.readBytes(output.readableBytes()).array();
+            byte[] rewritten = new byte[output.readableBytes()];
+            output.readBytes(rewritten);
+            return rewritten;
         } catch (RuntimeException ignored) {
             return packetData;
         } finally {
