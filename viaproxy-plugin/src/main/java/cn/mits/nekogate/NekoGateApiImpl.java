@@ -3,6 +3,8 @@ package cn.mits.nekogate;
 import cn.mits.nekogate.api.DisplayNameService;
 import cn.mits.nekogate.api.NekoGateAPI;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
 
 final class NekoGateApiImpl implements NekoGateAPI {
     private final Path dataDirectory;
@@ -35,8 +37,8 @@ final class NekoGateApiImpl implements NekoGateAPI {
 
     void publish(Object event) { this.events.publish(event); }
 
-    java.util.List<String> visibleCommandNames(NekoGateAPI.Player player) {
-        return this.commands.visibleCommandNames(player);
+    Map<String, List<String>> visibleCommands(NekoGateAPI.Player player) {
+        return this.commands.visibleCommands(player);
     }
     boolean dispatchCommand(NekoGateAPI.Player player, String input) {
         return this.commands.dispatch(player, input, message -> {
