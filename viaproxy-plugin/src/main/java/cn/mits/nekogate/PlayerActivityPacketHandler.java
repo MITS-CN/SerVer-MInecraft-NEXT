@@ -130,10 +130,10 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                     removeBackendPlayerNames(unknown.data);
                 }
             }
-            if (this.logger.isServerChatLoggingEnabled() && type == MCPackets.S2C_PLAYER_CHAT) {
+            if (type == MCPackets.S2C_PLAYER_CHAT) {
                 logRawServerChat(unknown.data, serverProtocol);
             }
-            if (this.logger.isSystemMessageLoggingEnabled() && type == MCPackets.S2C_SYSTEM_CHAT) {
+            if (type == MCPackets.S2C_SYSTEM_CHAT) {
                 logRawSystemMessage(unknown.data);
             }
             if (this.logger.isLocationLoggingEnabled()
