@@ -16,7 +16,7 @@ $Headers = @{
 }
 
 try {
-    if (Test-Path $TargetPath -PathType Leaf -and (Test-Path $StatePath -PathType Leaf)) {
+    if ((Test-Path $TargetPath -PathType Leaf) -and (Test-Path $StatePath -PathType Leaf)) {
         try {
             $state = Get-Content -Raw -Path $StatePath | ConvertFrom-Json
             $lastCheck = [DateTimeOffset]::Parse($state.last_checked_utc)
@@ -91,7 +91,7 @@ try {
         throw '官方构建产物中没有找到适用于 Java 17+ 的 ViaProxy JAR。'
     }
 
-    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
     $jarArchive = [System.IO.Compression.ZipFile]::OpenRead($jar.FullName)
     try {
         if (-not $jarArchive.GetEntry('net/raphimc/viaproxy/ViaProxy.class')) {
