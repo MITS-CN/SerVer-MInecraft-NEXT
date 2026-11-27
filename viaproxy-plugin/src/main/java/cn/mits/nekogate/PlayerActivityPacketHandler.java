@@ -39,6 +39,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     private final PlayerActivityLogger logger;
     private final NekoGateApiImpl extensionApi;
     private final Map<String, String> backendPlayerNames = new ConcurrentHashMap<>();
+    private final Map<String, String> backendProfileNames = new ConcurrentHashMap<>();
     private final AtomicBoolean joined = new AtomicBoolean();
     private final AtomicBoolean joinLogged = new AtomicBoolean();
     private volatile Instant joinedAt;
@@ -288,6 +289,11 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                         this.backendPlayerNames.put(playerId.toString(), username);
                     }
                     String headName = profileDisplayName(username);
+                    if (username != null && !username.isBlank() && headName != null) {
+                        this.backendProfileNames.put(username, headName);
+                    } else if (username != null) {
+                        this.backendProfileNames.remove(username);
+                    }
                     if (headName != null) {
                         // The Add Player name is the GameProfile name used by the client
                         // for the player's in-world name tag. Keep the UUID and skin
@@ -403,7 +409,10 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                 PacketTypes.writeVarInt(output, count);
                 for (int i = 0; i < count; i++) {
                     String member = PacketTypes.readString(input, 32767);
-                    String profileName = profileDisplayName(member);
+                    // Prefer the alias actually sent in Add Player. This keeps
+                    // later team removals consistent even if the config is reloaded.
+                    String profileName = this.backendProfileNames.get(member);
+                    if (profileName == null) profileName = profileDisplayName(member);
                     PacketTypes.writeString(output, profileName == null ? member : profileName);
                 }
             } else if (method != 1 && method != 2) {
@@ -535,7 +544,8 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             int count = PacketTypes.readVarInt(buffer);
             if (count < 0 || count > 4096) return;
             for (int i = 0; i < count; i++) {
-                this.backendPlayerNames.remove(PacketTypes.readUuid(buffer).toString());
+                String username = this.backendPlayerNames.remove(PacketTypes.readUuid(buffer).toString());
+                if (username != null) this.backendProfileNames.remove(username);
             }
         } catch (RuntimeException ignored) {
             // Ignore malformed player-list updates; packet forwarding remains untouched.
