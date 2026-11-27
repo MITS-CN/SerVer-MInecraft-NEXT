@@ -177,15 +177,15 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     }
 
     void onDisconnect() {
+        if (this.loginAttemptAt != null) {
+            logLoginDiagnostic("CONNECTION_CLOSED", "packets=" + this.loginDiagnosticPackets
+                    + " bytes=" + this.loginDiagnosticBytes);
+        }
         Instant start = this.joinedAt;
         if (start == null || !this.joined.compareAndSet(true, false)) return;
 
         String player = playerName();
         if (player == null) return;
-        if (this.loginAttemptAt != null) {
-            logLoginDiagnostic("CONNECTION_CLOSED", "packets=" + this.loginDiagnosticPackets
-                    + " bytes=" + this.loginDiagnosticBytes);
-        }
         publish(new NekoGateEvents.PlayerQuit(Instant.now(), apiPlayer()));
         if (this.joinLogged.compareAndSet(false, true)) {
             this.logger.logJoin(player, playerUuid(), start, this.dimension, this.x, this.y, this.z, this.yaw, this.pitch);
