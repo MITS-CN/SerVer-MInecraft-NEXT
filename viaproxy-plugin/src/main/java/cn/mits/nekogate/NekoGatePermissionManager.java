@@ -12,7 +12,6 @@ import java.util.Locale;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 final class NekoGatePermissionManager implements NekoGateAPI.PermissionService {
     private final Properties grants = new Properties();
