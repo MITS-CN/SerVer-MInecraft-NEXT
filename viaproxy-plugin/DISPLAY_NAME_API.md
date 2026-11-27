@@ -82,7 +82,12 @@ text. Call `api.displayNames().reload()` after editing the file.
 For Minecraft 26.3, the plugin resolves entries by the original backend
 username. It applies the rich component to the player-list display name and
 the chat sender name. The in-world GameProfile name is a plain string with a
-16 UTF-16-code-unit limit, so its formatting is flattened and long values are
-truncated. UUIDs, skin properties, chat signatures, and message bodies are
-not rewritten. Full rich formatting for in-world name tags requires
-Scoreboard Team packet handling and is a separate compatibility concern.
+16 UTF-16-code-unit limit, so configured prefix/name/suffix text is flattened
+and long values are truncated. The plugin also rewrites the player-name
+entries in 26.3 Scoreboard Team packets to keep renamed players associated
+with their original backend teams; backend team prefix/suffix, visibility,
+collision, color, and friendly-fire settings are preserved. Configured
+gradient and per-component formatting are not yet rendered in the in-world
+name tag. Keep the flattened result unique across online players to avoid
+scoreboard-name collisions. UUIDs, skin properties, chat signatures, and
+message bodies are not rewritten.
