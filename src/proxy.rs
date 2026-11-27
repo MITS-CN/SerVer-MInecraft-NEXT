@@ -1,5 +1,4 @@
 ﻿use std::collections::HashMap;
-use std::io::{BufRead, Write};
 use std::net::{Shutdown, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -30,67 +29,9 @@ pub struct Player {
     pub compression_threshold: i32,
     pub config_finish_sent: bool,
     pub protocol_version: i32,
-    pub writer: Arc<Mutex<TcpStream>>,
 }
 
 pub type Players = Arc<Mutex<HashMap<u64, Player>>>;
-
-// ============================================================
-// say 注入：交给 ViaProxy 插件，通过 ViaVersion 的版本转换管线发送
-// ============================================================
-
-pub fn broadcast_system_chat(players: &Players, msg: &str, logger: &Logger) -> usize {
-    let tracked_players = {
-        let lock = players.lock().unwrap();
-        lock.values().filter(|p| p.state == ConnState::Play).count()
-    };
-
-    let addr = match "127.0.0.1:25626".parse() {
-        Ok(addr) => addr,
-        Err(e) => {
-            logger.error(&format!("[say] 控制地址无效: {}", e));
-            return 0;
-        }
-    };
-    let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_secs(2)) {
-        Ok(stream) => stream,
-        Err(e) => {
-            logger.error(&format!("[say] 无法连接 ViaProxy 聊天插件 127.0.0.1:25626: {}", e));
-            return 0;
-        }
-    };
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(3)));
-
-    let request = serde_json::json!({ "message": msg }).to_string();
-    if let Err(e) = writeln!(stream, "{}", request) {
-        logger.error(&format!("[say] 发送给 ViaProxy 插件失败: {}", e));
-        return 0;
-    }
-
-    let mut response = String::new();
-    if let Err(e) = std::io::BufReader::new(stream).read_line(&mut response) {
-        logger.error(&format!("[say] 读取 ViaProxy 插件响应失败: {}", e));
-        return 0;
-    }
-
-    match serde_json::from_str::<serde_json::Value>(&response) {
-        Ok(value) => {
-            let sent = value.get("sent").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-            let total = value.get("total").and_then(|v| v.as_u64()).unwrap_or(tracked_players as u64);
-            let failed = value.get("failed").and_then(|v| v.as_u64()).unwrap_or(0);
-            logger.info(&format!(
-                "[say] ViaProxy 转换发送完成 sent={}/{} failed={} tracked_rust={}",
-                sent, total, failed, tracked_players
-            ));
-            sent
-        }
-        Err(e) => {
-            logger.error(&format!("[say] ViaProxy 插件返回无效响应: {} ({:?})", e, response));
-            0
-        }
-    }
-}
 
 pub fn handle_client(
     mut client: TcpStream,
@@ -261,7 +202,6 @@ pub fn handle_client(
             compression_threshold: -1,
             config_finish_sent: false,
             protocol_version,
-            writer: client_writer.clone(),
         },
     );
 

@@ -1,8 +1,6 @@
 ﻿use std::io::{Read, Write};
 
 use flate2::read::ZlibDecoder;
-use flate2::write::ZlibEncoder;
-use flate2::Compression;
 
 // ============================================================
 // VarInt / Packet
@@ -87,31 +85,6 @@ pub fn write_packet<W: Write>(s: &mut W, data: &[u8]) -> std::io::Result<()> {
     s.write_all(&len)?;
     s.write_all(data)?;
     s.flush()
-}
-
-pub fn wrap_packet(data: &[u8], threshold: i32) -> Vec<u8> {
-    let mut inner = Vec::new();
-    if threshold >= 0 {
-        if data.len() >= threshold as usize {
-            let mut e = ZlibEncoder::new(Vec::new(), Compression::fast());
-            let _ = e.write_all(data);
-            if let Ok(compressed) = e.finish() {
-                inner.extend(write_varint(data.len() as i32));
-                inner.extend(compressed);
-            } else {
-                inner.extend(write_varint(0));
-                inner.extend(data);
-            }
-        } else {
-            inner.extend(write_varint(0));
-            inner.extend(data);
-        }
-    } else {
-        inner.extend(data);
-    }
-    let mut out = write_varint(inner.len() as i32);
-    out.extend(inner);
-    out
 }
 
 pub fn unwrap_payload(pkt: &[u8], threshold: i32) -> Option<Vec<u8>> {
