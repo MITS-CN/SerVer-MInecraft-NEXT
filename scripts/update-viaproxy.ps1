@@ -33,7 +33,7 @@ try {
     $runsResponse = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/actions/runs?per_page=100" -Headers $Headers
     $run = $runsResponse.workflow_runs |
         Where-Object {
-            $_.workflow_id -eq $WorkflowId -and
+            $_.path -eq '.github/workflows/build.yml' -and
             $_.head_branch -eq 'main' -and
             $_.status -eq 'completed' -and
             $_.conclusion -eq 'success'
