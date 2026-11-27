@@ -83,12 +83,16 @@ public final class NekoGateAuthMeBridge extends JavaPlugin implements Listener {
             getLogger().warning("Could not query AuthMe state for " + player.getName() + ": " + error);
             return false;
         }
-        sendState(player, authenticated);
+        if (authenticated) sendState(player, true);
         return authenticated;
     }
 
     private void sendState(Player player, boolean authenticated) {
         if (player == null || !player.isOnline()) return;
+        if (!Bukkit.isPrimaryThread()) {
+            Bukkit.getScheduler().runTask(this, () -> sendState(player, authenticated));
+            return;
+        }
         try {
             ByteArrayOutputStream bytes = new ByteArrayOutputStream(2);
             try (DataOutputStream output = new DataOutputStream(bytes)) {
