@@ -258,8 +258,9 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     }
 
     /**
-     * Rewrites only the optional display-name component in 26.3 player-info updates.
-     * All other fields are copied byte-for-byte so ViaVersion can translate the packet normally.
+     * Rewrites the profile name used for the in-world player name tag and the optional
+     * display-name component used by the player list. UUIDs, skin properties, chat
+     * sessions, and all unrelated fields are preserved for ViaVersion translation.
      */
     private byte[] rewritePlayerInfoUpdate(byte[] data) {
         if (data == null || data.length == 0 || this.extensionApi == null) return data;
@@ -281,6 +282,17 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                     if (username != null && !username.isBlank()) {
                         this.backendPlayerNames.put(playerId.toString(), username);
                     }
+                    String headName = profileDisplayName(username);
+                    if (headName != null) {
+                        // The Add Player name is the GameProfile name used by the client
+                        // for the player's in-world name tag. Keep the UUID and skin
+                        // properties unchanged; only replace this presentation string.
+                        PacketTypes.writeString(output, headName);
+                    } else {
+                        copyConsumed(input, output, fieldStart);
+                    }
+
+                    fieldStart = input.readerIndex();
                     int properties = PacketTypes.readVarInt(input);
                     if (properties < 0 || properties > 1024) return data;
                     for (int property = 0; property < properties; property++) {
@@ -398,6 +410,42 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             input.release();
             output.release();
         }
+    }
+
+    /**
+     * Resolves the configured display name for the player's GameProfile name.
+     * The protocol field is a profile-name string (maximum 16 UTF-16 code units), not
+     * a text component, so formatting is flattened while the UUID and textures
+     * remain untouched.
+     */
+    private String profileDisplayName(String username) {
+        if (username == null || username.isBlank() || this.extensionApi == null) return null;
+        var displayName = this.extensionApi.displayNames().find(username).orElse(null);
+        if (displayName == null) return null;
+
+        StringBuilder plain = new StringBuilder();
+        appendPlainText(displayName.prefix(), plain);
+        appendPlainText(displayName.name(), plain);
+        appendPlainText(displayName.suffix(), plain);
+        String value = plain.toString();
+        if (value.isBlank()) return null;
+
+        if (value.length() > 16) {
+            int end = 16;
+            // Do not leave an unpaired high surrogate at the truncation boundary.
+            if (Character.isHighSurrogate(value.charAt(end - 1))
+                    && Character.isLowSurrogate(value.charAt(end))) {
+                end--;
+            }
+            value = value.substring(0, end);
+        }
+        return value;
+    }
+
+    private static void appendPlainText(Component component, StringBuilder output) {
+        if (component == null) return;
+        output.append(component.text());
+        for (Component child : component.children()) appendPlainText(child, output);
     }
 
     private static Tag toTag(Component component) {
