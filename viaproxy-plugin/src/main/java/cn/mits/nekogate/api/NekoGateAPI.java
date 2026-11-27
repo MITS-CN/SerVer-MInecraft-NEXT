@@ -10,7 +10,7 @@ import java.util.function.Consumer;
 /** Stable public API exposed to trusted NekoGate extensions. */
 public interface NekoGateAPI {
     int API_VERSION = 1;
-    int API_MINOR_VERSION = 2;
+    int API_MINOR_VERSION = 3;
 
     Path dataDirectory();
     EventBus events();
