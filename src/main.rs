@@ -207,28 +207,21 @@ fn main() {
     // Check the official ViaProxy development build before starting the proxy.
     // The updater is optional: network/API failures must never prevent startup
     // when a previously installed ViaProxy JAR is available.
-    if std::env::var("NEKOGATE_DISABLE_VIAPROXY_AUTO_UPDATE").as_deref() != Ok("1") {
-        let updater_candidates = [
-            cwd.join("scripts").join("update-viaproxy.ps1"),
-            base_dir.join("scripts").join("update-viaproxy.ps1"),
-        ];
+    if !std::env::var("NEKOGATE_DISABLE_VIAPROXY_AUTO_UPDATE").map(|value| value == "1").unwrap_or(false) {
         #[cfg(windows)]
-        let updater = updater_candidates.iter().find(|path| path.is_file());
-        #[cfg(not(windows))]
-        let updater = {
-            let candidates = [
-                cwd.join("scripts").join("update-viaproxy.py"),
-                base_dir.join("scripts").join("update-viaproxy.py"),
+        {
+            let updater_candidates = [
+                cwd.join("scripts").join("update-viaproxy.ps1"),
+                base_dir.join("scripts").join("update-viaproxy.ps1"),
             ];
-            // Keep the selected path alive for the command invocation below.
-            let selected = candidates.into_iter().find(|path| path.is_file());
-            if let Some(script) = selected {
+            if let Some(script) = updater_candidates.iter().find(|path| path.is_file()) {
                 logger.info("[ViaProxy] 正在检查官方更新...");
-                let result = std::process::Command::new("python3")
-                    .arg(&script)
+                match std::process::Command::new("powershell")
+                    .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
+                    .arg(script)
                     .arg(&viaproxy_jar_target)
-                    .status();
-                match result {
+                    .status()
+                {
                     Ok(status) if status.success() => {}
                     Ok(status) => logger.warn(&format!("[ViaProxy] 自动更新未完成（退出状态: {}），继续使用现有版本", status)),
                     Err(error) => logger.warn(&format!("[ViaProxy] 无法运行自动更新器: {}，继续使用现有版本", error)),
@@ -236,23 +229,28 @@ fn main() {
             } else {
                 logger.warn("[ViaProxy] 未找到自动更新脚本，跳过更新检查");
             }
-            None::<&std::path::PathBuf>
-        };
-        #[cfg(windows)]
-        if let Some(script) = updater {
-            logger.info("[ViaProxy] 正在检查官方更新...");
-            match std::process::Command::new("powershell")
-                .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
-                .arg(script)
-                .arg(&viaproxy_jar_target)
-                .status()
-            {
-                Ok(status) if status.success() => {}
-                Ok(status) => logger.warn(&format!("[ViaProxy] 自动更新未完成（退出状态: {}），继续使用现有版本", status)),
-                Err(error) => logger.warn(&format!("[ViaProxy] 无法运行自动更新器: {}，继续使用现有版本", error)),
+        }
+
+        #[cfg(not(windows))]
+        {
+            let updater_candidates = [
+                cwd.join("scripts").join("update-viaproxy.py"),
+                base_dir.join("scripts").join("update-viaproxy.py"),
+            ];
+            if let Some(script) = updater_candidates.iter().find(|path| path.is_file()) {
+                logger.info("[ViaProxy] 正在检查官方更新...");
+                match std::process::Command::new("python3")
+                    .arg(script)
+                    .arg(&viaproxy_jar_target)
+                    .status()
+                {
+                    Ok(status) if status.success() => {}
+                    Ok(status) => logger.warn(&format!("[ViaProxy] 自动更新未完成（退出状态: {}），继续使用现有版本", status)),
+                    Err(error) => logger.warn(&format!("[ViaProxy] 无法运行自动更新器: {}，继续使用现有版本", error)),
+                }
+            } else {
+                logger.warn("[ViaProxy] 未找到自动更新脚本，跳过更新检查");
             }
-        } else {
-            logger.warn("[ViaProxy] 未找到自动更新脚本，跳过更新检查");
         }
     } else {
         logger.info("[ViaProxy] 已通过环境变量禁用自动更新");
