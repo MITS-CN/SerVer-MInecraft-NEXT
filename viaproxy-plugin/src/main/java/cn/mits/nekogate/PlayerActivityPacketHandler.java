@@ -145,7 +145,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             );
             if (type == MCPackets.S2C_COMMANDS && this.extensionApi != null) {
                 byte[] rewritten = BrigadierCommandTree.appendCommands(
-                        unknown.data, this.extensionApi.visibleCommandNames(apiPlayer()));
+                        unknown.data, this.extensionApi.visibleCommands(apiPlayer()));
                 if (rewritten != unknown.data) unknown.data = rewritten;
             }
             if (serverProtocol >= MCVersion.v26_3) {
