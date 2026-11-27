@@ -63,7 +63,7 @@ final class DisplayNameManager implements DisplayNameService {
         Map<UUID, DisplayName> next = new java.util.HashMap<>();
         for (Map.Entry<String, JsonElement> entry : entries.entrySet()) {
             UUID id;
-            try { id = UUID.fromString(entry.getKey()); } catch (IllegalArgumentException ignored) { continue; }
+            try { id = UUID.fromString(entry.getKey()); } catch (RuntimeException ignored) { continue; }
             if (!entry.getValue().isJsonObject()) continue;
             JsonObject value = entry.getValue().getAsJsonObject();
             JsonElement nameElement = value.get("name");
@@ -108,7 +108,7 @@ final class DisplayNameManager implements DisplayNameService {
             if (gradient.size() == 2) {
                 try {
                     result = Component.gradient(text, gradient.get(0).getAsString(), gradient.get(1).getAsString());
-                } catch (IllegalArgumentException ignored) {
+                } catch (RuntimeException ignored) {
                     // Invalid colors fall back to the component's plain text.
                 }
             }
@@ -116,7 +116,7 @@ final class DisplayNameManager implements DisplayNameService {
             String color = string(object, "color");
             if (color != null) {
                 try { result = Component.colored(text, color); }
-                catch (IllegalArgumentException ignored) {
+                catch (RuntimeException ignored) {
                     // Invalid colors fall back to the component's plain text.
                 }
             }
