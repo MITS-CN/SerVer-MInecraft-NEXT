@@ -7,8 +7,8 @@ import net.raphimc.netminecraft.packet.PacketTypes;
 import java.util.List;
 
 /**
- * Adds proxy-owned literal commands to a backend Brigadier command tree without
- * decoding or rewriting any backend node payloads.
+ * Adds proxy-owned literal commands to the existing Brigadier root node.
+ * Backend nodes and their indices are copied without modification.
  */
 final class BrigadierCommandTree {
     private static final int MAX_NODE_COUNT = 100_000;
@@ -31,47 +31,64 @@ final class BrigadierCommandTree {
         try {
             int nodeCount = PacketTypes.readVarInt(input);
             if (nodeCount < 1 || nodeCount > MAX_NODE_COUNT
-                    || names.size() > MAX_NODE_COUNT - nodeCount - 1) {
+                    || names.size() > MAX_NODE_COUNT - nodeCount) {
                 return packetData;
             }
 
             int nodesStart = input.readerIndex();
-            // Brigadier serializes its root node first and writes root index 0 as
-            // the final single-byte VarInt. Refuse non-standard trees rather than
-            // guessing the boundary of an opaque node payload.
             int rootIndexStart = packetData.length - 1;
-            if (rootIndexStart < nodesStart || packetData[rootIndexStart] != 0) return packetData;
-            int originalRootIndex = 0;
+            // The Brigadier root node is node zero and the packet ends with root index zero.
+            if (rootIndexStart <= nodesStart || packetData[rootIndexStart] != 0) return packetData;
 
-            PacketTypes.writeVarInt(output, nodeCount + names.size() + 1);
-            output.writeBytes(packetData, nodesStart, rootIndexStart - nodesStart);
+            int rootFlags = input.readUnsignedByte();
+            if ((rootFlags & 0x03) != 0 || (rootFlags & 0x08) != 0) return packetData;
 
-            int firstAddedNode = nodeCount;
-            for (String name : names) {
-                // Brigadier node type 1 = literal; no children or redirect.
-                output.writeByte(0x01);
-                PacketTypes.writeVarInt(output, 0);
-                PacketTypes.writeString(output, name);
+            int originalChildCount = PacketTypes.readVarInt(input);
+            if (originalChildCount < 0 || originalChildCount > nodeCount
+                    || originalChildCount > MAX_NODE_COUNT - names.size()) {
+                return packetData;
             }
 
-            // A synthetic root keeps the backend root intact as a child, so every
-            // backend command remains available alongside proxy-owned commands.
-            output.writeByte(0x00);
-            PacketTypes.writeVarInt(output, names.size() + 1);
-            PacketTypes.writeVarInt(output, originalRootIndex);
+            int childrenStart = input.readerIndex();
+            for (int i = 0; i < originalChildCount; i++) {
+                int childIndex = PacketTypes.readVarInt(input);
+                if (childIndex < 0 || childIndex >= nodeCount) return packetData;
+            }
+            int rootNodeEnd = input.readerIndex();
+            if (rootNodeEnd > rootIndexStart) return packetData;
+
+            // Rewrite only node zero's child count/list. All existing backend
+            // nodes remain byte-for-byte intact and keep their original indices.
+            PacketTypes.writeVarInt(output, nodeCount + names.size());
+            output.writeByte(rootFlags);
+            PacketTypes.writeVarInt(output, originalChildCount + names.size());
+            output.writeBytes(packetData, childrenStart, rootNodeEnd - childrenStart);
+
+            int firstAddedNode = nodeCount;
             for (int i = 0; i < names.size(); i++) {
                 PacketTypes.writeVarInt(output, firstAddedNode + i);
             }
-            PacketTypes.writeVarInt(output, nodeCount + names.size());
+
+            // Copy every backend node after the root unchanged.
+            output.writeBytes(packetData, rootNodeEnd, rootIndexStart - rootNodeEnd);
+
+            // Append literal nodes before the unchanged root-index field.
+            for (String name : names) {
+                output.writeByte(0x01); // literal, no executable flag
+                PacketTypes.writeVarInt(output, 0); // no children
+                PacketTypes.writeString(output, name);
+            }
+            output.writeByte(0); // root node index
+
             byte[] rewritten = new byte[output.readableBytes()];
             output.readBytes(rewritten);
             return rewritten;
         } catch (RuntimeException ignored) {
+            // Malformed or unfamiliar command trees are forwarded unchanged.
             return packetData;
         } finally {
             input.release();
             output.release();
         }
     }
-
 }

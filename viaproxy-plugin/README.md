@@ -122,7 +122,7 @@ Players run this command as `/hello`. Arguments are available through `context.a
 
 ### Client-side command completion
 
-Extension commands registered with `api.commands().register(...)` are now added to each eligible player's client-side Brigadier command tree when the backend sends its command tree. Visibility follows the command's configured permission, so players without permission do not receive the extension command in tab completion. The backend command tree is retained; proxy-owned commands are added alongside it.
+Extension commands registered with `api.commands().register(...)` are now added to each eligible player's client-side Brigadier command tree when the backend sends its command tree. Visibility follows the command's configured permission, so players without permission do not receive the extension command in tab completion. The existing Brigadier root node is extended with proxy-owned command entries; all backend nodes and their indices are preserved.
 
 This command-tree injection applies to Minecraft protocol versions that support Brigadier command trees (1.13 and newer). The current registration API publishes the extension command's root literal; extensions that need structured subcommand and argument suggestions will need to provide syntax metadata in a future API addition. Command execution and permission checks remain authoritative on the proxy and do not rely on client-side visibility.
 
