@@ -491,8 +491,10 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
         @EventHandler
         public void onConnect(ConnectEvent event) {
             PlayerActivityLogger logger = activityLogger;
-            if (logger == null || !logger.isEnabled()) return;
+            if (logger == null) return;
 
+            // Packet observation also feeds the extension API; audit-file settings
+            // must not disable extension events when logging.enabled=false.
             ProxyConnection connection = event.getProxyConnection();
             PlayerActivityPacketHandler handler = new PlayerActivityPacketHandler(logger, connection, extensionApi);
             connection.getPacketHandlers().add(handler);
