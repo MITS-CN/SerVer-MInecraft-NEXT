@@ -13,7 +13,6 @@ import zipfile
 from pathlib import Path
 
 REPOSITORY = "ViaVersion/ViaProxy"
-WORKFLOW_ID = 72929512
 API_HEADERS = {
     "User-Agent": "NekoProxy-AutoUpdater",
     "Accept": "application/vnd.github+json",
