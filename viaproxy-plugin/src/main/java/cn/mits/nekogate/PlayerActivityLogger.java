@@ -59,6 +59,16 @@ final class PlayerActivityLogger {
             try (var reader = Files.newBufferedReader(configFile, StandardCharsets.UTF_8)) {
                 config.load(reader);
             }
+            // Migrate existing installations so newly introduced options are visible
+            // and editable in their config file without deleting their current settings.
+            if (!config.containsKey("debug.nbt")) {
+                Files.writeString(configFile,
+                        "\\n# Enable rate-limited diagnostics for rejected system-chat NBT payloads.\\n"
+                                + "# NBT safety checks remain enabled regardless of this setting.\\n"
+                                + "debug.nbt=false\\n",
+                        StandardCharsets.UTF_8, StandardOpenOption.APPEND);
+                config.setProperty("debug.nbt", "false");
+            }
         } catch (IOException | IllegalArgumentException e) {
             System.err.println("[NekoGate] Could not load activity logging config; logging stays disabled: " + e);
         }
