@@ -34,7 +34,7 @@ Join and leave events include the last observed dimension, X/Y/Z coordinates, an
 Chat messages are stored verbatim, and command entries represent commands observed at the proxy rather than confirmed backend execution. Backend player-chat entries use the sender UUID because the clientbound player-chat packet does not carry a plain sender-name field. Protect the log file and establish an appropriate retention policy.
 
 
-## Java Extension API (API v1)
+## Java Extension API (API v1.1)
 
 NekoGate can load trusted third-party Java extensions from:
 
@@ -87,4 +87,49 @@ public final class WelcomeExtension implements NekoGateExtension {
 }
 ```
 
-Extensions run inside the ViaProxy process with the same operating-system permissions as NekoGate. Only install JARs from sources you trust. API v1 is intentionally small; new methods and event types will be added compatibly where possible.
+
+### Registering a command
+
+Commands are registered during `onEnable` and should be unregistered during `onDisable`:
+
+```java
+public final class HelloExtension implements NekoGateExtension {
+    private NekoGateAPI.Subscription command;
+
+    @Override
+    public void onEnable(NekoGateAPI api) {
+        command = api.commands().register(
+            "hello",
+            "example.hello",
+            "Sends a greeting",
+            context -> context.reply("Hello, " + context.player().name() + "!")
+        );
+    }
+
+    @Override
+    public void onDisable() {
+        if (command != null) command.close();
+    }
+}
+```
+
+Players run this command as `/hello`. Arguments are available through `context.arguments()`; quoted arguments are supported. The command is intercepted only when an extension has registered that name. Unregistered commands continue to the backend as usual.
+
+### Permission configuration
+
+On startup NekoGate creates `plugins/NekoGate/permissions.properties`. Add a UUID entry to grant permissions:
+
+```properties
+# Exact permission
+00000000-0000-0000-0000-000000000000=example.hello
+
+# Wildcard permission
+11111111-1111-1111-1111-111111111111=example.*
+
+# Full access to extension commands
+22222222-2222-2222-2222-222222222222=*
+```
+
+Multiple nodes are comma-separated. A `namespace.*` grant includes all permission nodes under that namespace. Changes are read at ViaProxy startup; restart ViaProxy after editing the file. Use player UUIDs rather than names so permission assignments remain stable if a player changes their username.
+
+Extensions run inside the ViaProxy process with the same operating-system permissions as NekoGate. Only install JARs from sources you trust. API major version remains 1; this release adds the command and permission services compatibly.
