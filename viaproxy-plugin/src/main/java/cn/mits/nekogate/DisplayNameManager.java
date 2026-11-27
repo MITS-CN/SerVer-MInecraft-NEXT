@@ -4,6 +4,7 @@ import cn.mits.nekogate.api.Component;
 import cn.mits.nekogate.api.DisplayName;
 import cn.mits.nekogate.api.DisplayNameService;
 import cn.mits.nekogate.api.NekoGateAPI;
+import com.viaversion.viaversion.libs.gson.JsonArray;
 import com.viaversion.viaversion.libs.gson.JsonElement;
 import com.viaversion.viaversion.libs.gson.JsonObject;
 import com.viaversion.viaversion.libs.gson.JsonParser;
@@ -15,7 +16,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Thread-safe display-name overrides backed by plugins/NekoGate/name.josn5. */
+/** Thread-safe display-name overrides backed by ./data/name.josn5. */
 final class DisplayNameManager implements DisplayNameService {
     private final Path file;
     private final NekoGateAPI.PlayerService players;
@@ -47,7 +48,8 @@ final class DisplayNameManager implements DisplayNameService {
 
     @Override public synchronized void reload() throws IOException {
         if (!Files.exists(file)) {
-            Files.createDirectories(file.getParent());
+            Path parent = file.getParent();
+            if (parent != null) Files.createDirectories(parent);
             Files.writeString(file, "{\n  \"players\": {}\n}\n");
         }
         JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
@@ -58,21 +60,75 @@ final class DisplayNameManager implements DisplayNameService {
             try { id = UUID.fromString(entry.getKey()); } catch (IllegalArgumentException ignored) { continue; }
             if (!entry.getValue().isJsonObject()) continue;
             JsonObject value = entry.getValue().getAsJsonObject();
-            String prefix = string(value, "prefix"), name = string(value, "name"), suffix = string(value, "suffix");
-            if (name == null) continue;
-            next.put(id, DisplayName.of(prefix, name, suffix));
+            JsonElement nameElement = value.get("name");
+            if (nameElement == null || nameElement.isJsonNull()) continue;
+            Component name = readComponent(nameElement);
+            if (name.text().isBlank() && name.children().isEmpty()) continue;
+            next.put(id, new DisplayName(
+                    readComponent(value.get("prefix")),
+                    name,
+                    readComponent(value.get("suffix"))
+            ));
         }
         configured.clear();
         configured.putAll(next);
     }
+
     @Override public Component chatName(UUID id, String username) { return resolve(id, username); }
     @Override public Component tabName(UUID id, String username) { return resolve(id, username); }
+
     private Component resolve(UUID id, String username) {
         DisplayName value = find(id).orElse(null);
         return value == null ? Component.text(username == null ? "" : username)
                 : Component.join(value.prefix(), value.name(), value.suffix());
     }
+
+    private static Component readComponent(JsonElement element) {
+        if (element == null || element.isJsonNull()) return Component.empty();
+        if (element.isJsonPrimitive()) {
+            return element.getAsJsonPrimitive().isString()
+                    ? Component.text(element.getAsString()) : Component.empty();
+        }
+        if (!element.isJsonObject()) return Component.empty();
+
+        JsonObject object = element.getAsJsonObject();
+        String text = string(object, "text");
+        if (text == null) text = "";
+        Component result = Component.text(text);
+
+        JsonElement gradientElement = object.get("gradient");
+        if (gradientElement != null && gradientElement.isJsonArray()) {
+            JsonArray gradient = gradientElement.getAsJsonArray();
+            if (gradient.size() == 2) {
+                try {
+                    result = Component.gradient(text, gradient.get(0).getAsString(), gradient.get(1).getAsString());
+                } catch (IllegalArgumentException ignored) {
+                    // Invalid colors fall back to the component's plain text.
+                }
+            }
+        } else {
+            String color = string(object, "color");
+            if (color != null) {
+                try { result = Component.colored(text, color); }
+                catch (IllegalArgumentException ignored) {
+                    // Invalid colors fall back to the component's plain text.
+                }
+            }
+        }
+        if (booleanValue(object, "bold")) result = result.withBold(true);
+        if (booleanValue(object, "italic")) result = result.withItalic(true);
+        return result;
+    }
+
     private static String string(JsonObject object, String key) {
-        return object.has(key) && !object.get(key).isJsonNull() ? object.get(key).getAsString() : "";
+        JsonElement value = object.get(key);
+        return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()
+                ? value.getAsString() : null;
+    }
+
+    private static boolean booleanValue(JsonObject object, String key) {
+        JsonElement value = object.get(key);
+        return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isBoolean()
+                && value.getAsBoolean();
     }
 }
