@@ -36,14 +36,12 @@ final class BrigadierCommandTree {
             }
 
             int nodesStart = input.readerIndex();
-            int rootIndexStart = findTrailingVarIntStart(packetData);
-            if (rootIndexStart < nodesStart) return packetData;
-
-            input.readerIndex(rootIndexStart);
-            int originalRootIndex = PacketTypes.readVarInt(input);
-            if (input.isReadable() || originalRootIndex < 0 || originalRootIndex >= nodeCount) {
-                return packetData;
-            }
+            // Brigadier serializes its root node first and writes root index 0 as
+            // the final single-byte VarInt. Refuse non-standard trees rather than
+            // guessing the boundary of an opaque node payload.
+            int rootIndexStart = packetData.length - 1;
+            if (rootIndexStart < nodesStart || packetData[rootIndexStart] != 0) return packetData;
+            int originalRootIndex = 0;
 
             PacketTypes.writeVarInt(output, nodeCount + names.size() + 1);
             output.writeBytes(packetData, nodesStart, rootIndexStart - nodesStart);
@@ -76,9 +74,4 @@ final class BrigadierCommandTree {
         }
     }
 
-    private static int findTrailingVarIntStart(byte[] data) {
-        int start = data.length - 1;
-        while (start > 0 && (data[start - 1] & 0x80) != 0) start--;
-        return start;
-    }
 }
