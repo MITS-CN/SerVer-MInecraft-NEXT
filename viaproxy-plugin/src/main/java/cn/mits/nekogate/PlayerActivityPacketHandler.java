@@ -497,7 +497,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
 
             this.backendEntityIds.put(playerId.toString(), entityId);
             this.backendEntityNames.put(entityId, username);
-            queuePlayerHeadName(entityId, username, listeners, protocolVersion);
+            queuePlayerHeadName(entityId, username);
         } catch (RuntimeException ignored) {
             // Unknown or malformed spawn packets must not affect forwarding.
         } finally {
@@ -515,7 +515,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         try {
             int entityId = PacketTypes.readVarInt(buffer);
             String username = this.backendEntityNames.get(entityId);
-            if (username != null) queuePlayerHeadName(entityId, username, listeners, protocolVersion);
+            if (username != null) queuePlayerHeadName(entityId, username);
         } catch (RuntimeException ignored) {
             // Ignore malformed metadata packets.
         } finally {
@@ -538,8 +538,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         return current;
     }
 
-    private void queuePlayerHeadName(int entityId, String username,
-                                     List<ChannelFutureListener> listeners, int protocolVersion) {
+    private void queuePlayerHeadName(int entityId, String username) {
         var displayName = this.extensionApi.displayNames().find(username).orElse(null);
         if (displayName == null) return;
 
