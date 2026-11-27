@@ -55,7 +55,7 @@ def main():
     runs = get_json(f"https://api.github.com/repos/{REPOSITORY}/actions/runs?per_page=100")
     successful = [
         run for run in runs.get("workflow_runs", [])
-        if run.get("workflow_id") == WORKFLOW_ID
+        if run.get("path") == ".github/workflows/build.yml"
         and run.get("head_branch") == "main"
         and run.get("status") == "completed"
         and run.get("conclusion") == "success"
