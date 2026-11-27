@@ -318,9 +318,9 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                 if ((actions & 0x20) != 0) {
                     fieldStart = input.readerIndex();
                     Types.OPTIONAL_TAG.read(input);
-                    if (this.extensionApi.displayNames().find(playerId).isPresent()) {
-                        String username = this.backendPlayerNames.get(playerId.toString());
-                        Tag displayName = toTag(this.extensionApi.displayNames().tabName(playerId, username));
+                    String username = this.backendPlayerNames.get(playerId.toString());
+                    if (username != null && this.extensionApi.displayNames().find(username).isPresent()) {
+                        Tag displayName = toTag(this.extensionApi.displayNames().tabName(username));
                         Types.OPTIONAL_TAG.write(output, displayName);
                     } else {
                         copyConsumed(input, output, fieldStart);
@@ -380,10 +380,10 @@ final class PlayerActivityPacketHandler extends PacketHandler {
 
             int senderNameStart = input.readerIndex();
             Types.TAG.read(input); // Sender name component
-            if (this.extensionApi.displayNames().find(sender).isEmpty()) return data;
-
             String username = this.backendPlayerNames.get(sender.toString());
-            Tag displayName = toTag(this.extensionApi.displayNames().chatName(sender, username));
+            if (username == null || this.extensionApi.displayNames().find(username).isEmpty()) return data;
+
+            Tag displayName = toTag(this.extensionApi.displayNames().chatName(username));
             output.writeBytes(input, 0, senderNameStart);
             Types.TAG.write(output, displayName);
             output.writeBytes(input, input.readerIndex(), input.readableBytes());
