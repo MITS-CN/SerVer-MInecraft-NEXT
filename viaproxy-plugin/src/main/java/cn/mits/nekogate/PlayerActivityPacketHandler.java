@@ -267,7 +267,6 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         ByteBuf output = Unpooled.buffer(data.length + 128);
         try {
             int actions = input.readUnsignedByte();
-            int countStart = input.readerIndex();
             int count = PacketTypes.readVarInt(input);
             if (count < 0 || count > 4096) return data;
             copyConsumed(input, output, 0);
