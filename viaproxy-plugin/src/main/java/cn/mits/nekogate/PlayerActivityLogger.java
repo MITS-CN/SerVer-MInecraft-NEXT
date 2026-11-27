@@ -27,6 +27,7 @@ final class PlayerActivityLogger {
     private final boolean logConnections;
     private final boolean logLocations;
     private final boolean debugNbt;
+    private final boolean debugLogin;
     private final Object writeLock = new Object();
     private final Object serverChatDedupLock = new Object();
     private final Map<String, Boolean> recentServerMessages = new LinkedHashMap<>(256, 0.75f, true);
@@ -54,6 +55,8 @@ final class PlayerActivityLogger {
                     # Enable rate-limited diagnostics for rejected system-chat NBT payloads.
                     # NBT safety checks remain enabled regardless of this setting.
                     debug.nbt=false
+                    # Enable login packet diagnostics after /login.
+                    debug.login=false
                     """, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
             }
             try (var reader = Files.newBufferedReader(configFile, StandardCharsets.UTF_8)) {
@@ -61,13 +64,21 @@ final class PlayerActivityLogger {
             }
             // Migrate existing installations so newly introduced options are visible
             // and editable in their config file without deleting their current settings.
+            StringBuilder missingOptions = new StringBuilder();
             if (!config.containsKey("debug.nbt")) {
-                Files.writeString(configFile,
-                        "\n# Enable rate-limited diagnostics for rejected system-chat NBT payloads.\n"
-                                + "# NBT safety checks remain enabled regardless of this setting.\n"
-                                + "debug.nbt=false\n",
-                        StandardCharsets.UTF_8, StandardOpenOption.APPEND);
+                missingOptions.append("\n# Enable rate-limited diagnostics for rejected system-chat NBT payloads.\n")
+                        .append("# NBT safety checks remain enabled regardless of this setting.\n")
+                        .append("debug.nbt=false\n");
                 config.setProperty("debug.nbt", "false");
+            }
+            if (!config.containsKey("debug.login")) {
+                missingOptions.append("\n# Enable login packet diagnostics after /login.\n")
+                        .append("debug.login=false\n");
+                config.setProperty("debug.login", "false");
+            }
+            if (!missingOptions.isEmpty()) {
+                Files.writeString(configFile, missingOptions.toString(),
+                        StandardCharsets.UTF_8, StandardOpenOption.APPEND);
             }
         } catch (IOException | IllegalArgumentException e) {
             System.err.println("[NekoGate] Could not load activity logging config; logging stays disabled: " + e);
@@ -82,6 +93,7 @@ final class PlayerActivityLogger {
         this.logConnections = Boolean.parseBoolean(config.getProperty("logging.connections", "true"));
         this.logLocations = Boolean.parseBoolean(config.getProperty("logging.locations", "true"));
         this.debugNbt = Boolean.parseBoolean(config.getProperty("debug.nbt", "false"));
+        this.debugLogin = Boolean.parseBoolean(config.getProperty("debug.login", "false"));
 
         if (this.enabled) {
             System.out.println("[NekoGate] Player activity logging enabled: " + this.logFile);
@@ -108,6 +120,10 @@ final class PlayerActivityLogger {
 
     boolean isNbtDiagnosticsEnabled() {
         return this.debugNbt;
+    }
+
+    boolean isLoginDiagnosticsEnabled() {
+        return this.debugLogin;
     }
 
     void logJoin(String player, String uuid, Instant joinedAt, String dimension,
