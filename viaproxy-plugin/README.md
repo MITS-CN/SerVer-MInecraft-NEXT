@@ -122,19 +122,19 @@ Players run this command as `/hello`. Arguments are available through `context.a
 
 ### Permission configuration
 
-On startup NekoGate creates `plugins/NekoGate/permissions.properties`. Add a UUID entry to grant permissions:
+On startup NekoGate creates `plugins/NekoGate/permissions.properties`. Add a player-name entry to grant permissions. This is recommended for tunnel/offline-mode networks, where a stable player UUID may not be available:
 
 ```properties
-# Exact permission
-00000000-0000-0000-0000-000000000000=example.hello
+# Exact permission (player name, case-insensitive)
+Steve=example.hello
 
 # Wildcard permission
-11111111-1111-1111-1111-111111111111=example.*
+Alex=example.*
 
 # Full access to extension commands
-22222222-2222-2222-2222-222222222222=*
+Admin=*
 ```
 
-Multiple nodes are comma-separated. A `namespace.*` grant includes all permission nodes under that namespace. Changes are read at ViaProxy startup; restart ViaProxy after editing the file. Use player UUIDs rather than names so permission assignments remain stable if a player changes their username.
+UUID keys remain supported when a stable authenticated UUID is available. Multiple nodes are comma-separated. A `namespace.*` grant includes all permission nodes under that namespace. Changes are read at ViaProxy startup; restart ViaProxy after editing the file.
 
 Extensions run inside the ViaProxy process with the same operating-system permissions as NekoGate. Only install JARs from sources you trust. API major version remains 1; this release adds the command and permission services compatibly.
