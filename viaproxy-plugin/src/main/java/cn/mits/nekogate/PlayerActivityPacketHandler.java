@@ -704,6 +704,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     }
 
     private void logNbtDiagnostic(int packetBytes, String reason) {
+        if (!this.logger.isNbtDiagnosticsEnabled()) return;
         long now = System.currentTimeMillis();
         long previous = this.lastNbtDiagnosticAt;
         if (now - previous < 10_000) return;
