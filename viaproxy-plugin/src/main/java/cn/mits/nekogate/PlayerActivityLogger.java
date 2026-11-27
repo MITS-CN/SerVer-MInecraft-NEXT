@@ -26,6 +26,7 @@ final class PlayerActivityLogger {
     private final boolean logCommands;
     private final boolean logConnections;
     private final boolean logLocations;
+    private final boolean debugNbt;
     private final Object writeLock = new Object();
     private final Object serverChatDedupLock = new Object();
     private final Map<String, Boolean> recentServerMessages = new LinkedHashMap<>(256, 0.75f, true);
@@ -50,6 +51,9 @@ final class PlayerActivityLogger {
                     logging.commands=true
                     logging.connections=true
                     logging.locations=true
+                    # Enable rate-limited diagnostics for rejected system-chat NBT payloads.
+                    # NBT safety checks remain enabled regardless of this setting.
+                    debug.nbt=false
                     """, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
             }
             try (var reader = Files.newBufferedReader(configFile, StandardCharsets.UTF_8)) {
@@ -67,6 +71,7 @@ final class PlayerActivityLogger {
         this.logCommands = Boolean.parseBoolean(config.getProperty("logging.commands", "true"));
         this.logConnections = Boolean.parseBoolean(config.getProperty("logging.connections", "true"));
         this.logLocations = Boolean.parseBoolean(config.getProperty("logging.locations", "true"));
+        this.debugNbt = Boolean.parseBoolean(config.getProperty("debug.nbt", "false"));
 
         if (this.enabled) {
             System.out.println("[NekoGate] Player activity logging enabled: " + this.logFile);
@@ -89,6 +94,10 @@ final class PlayerActivityLogger {
 
     boolean isSystemMessageLoggingEnabled() {
         return this.enabled && this.logSystemMessages;
+    }
+
+    boolean isNbtDiagnosticsEnabled() {
+        return this.debugNbt;
     }
 
     void logJoin(String player, String uuid, Instant joinedAt, String dimension,
