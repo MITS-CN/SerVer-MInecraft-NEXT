@@ -68,7 +68,7 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
                 return ViaProxyChatPlugin.this.kickPlayer(playerName, reason);
             }
         };
-        DisplayNameManager displayNames = new DisplayNameManager(Path.of("./data/name.josn5"), playerService);
+        DisplayNameManager displayNames = new DisplayNameManager(resolveDisplayNameFile(dataDirectory), playerService);
         this.extensionApi = new NekoGateApiImpl(dataDirectory, this.extensionEvents,
                 playerService, this.activityLogger::logExtensionEvent, commands, permissions, displayNames);
         this.extensionLoader = new NekoGateExtensionLoader();
@@ -105,6 +105,21 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
         NekoGateEventBus events = this.extensionEvents;
         if (events != null) events.clear();
         closeDatabase();
+    }
+
+    private static Path resolveDisplayNameFile(Path dataDirectory) {
+        Path current = dataDirectory.resolve("name.josn5");
+        Path legacy = Path.of("./data/name.josn5");
+        if (!Files.exists(current) && Files.exists(legacy)) {
+            try {
+                Files.createDirectories(current.getParent());
+                Files.copy(legacy, current);
+                System.out.println("[NekoGate] Migrated legacy display-name config to " + current);
+            } catch (IOException error) {
+                System.err.println("[NekoGate] Could not migrate legacy display-name config: " + error);
+            }
+        }
+        return current;
     }
 
     private void openDatabase() {
