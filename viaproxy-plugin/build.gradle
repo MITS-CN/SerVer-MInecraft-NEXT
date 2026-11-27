@@ -34,3 +34,7 @@ tasks.register('apiJar', Jar) {
     from sourceSets.main.output
     include 'cn/mits/nekogate/api/**'
 }
+
+tasks.named('build') {
+    dependsOn tasks.named('apiJar')
+}
