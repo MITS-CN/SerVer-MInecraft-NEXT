@@ -48,7 +48,7 @@ public interface NekoGateAPI {
     interface CommandRegistry {
         /**
          * Registers a command without the leading slash. Names are case-insensitive.
-         * A non-empty permission node is required; commands are denied by default
+         * A non-empty permission node is required; callbacks run on the packet thread and must stay fast. Commands are denied by default
          * unless the player's UUID is granted that node in permissions.properties.
          */
         Subscription register(String name, String permission, String description, CommandExecutor executor);
