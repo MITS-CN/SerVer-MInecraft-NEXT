@@ -58,12 +58,9 @@ git clone https://github.com/MITS-CN/SerVer-MInecraft-NEXT.git
 cd SerVer-MInecraft-NEXT
 ```
 
-### 2. 放置 ViaProxy
+### 2. ViaProxy 自动更新
 
-下载 ViaProxy，并将 JAR 放在项目根目录，文件名使用以下任意一种：
-
-- `ViaProxy.jar`
-- `ViaProxy-3.4.14.jar`
+首次启动会自动下载官方最新成功构建。若服务器无法联网，可手动将 `ViaProxy.jar` 或 `ViaProxy-3.4.14.jar` 放在项目根目录。
 
 ### 3. 启动
 
