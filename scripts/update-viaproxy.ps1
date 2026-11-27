@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true, Position = 0)]
     [string]$TargetPath
 )
@@ -29,30 +29,27 @@ try {
         }
     }
 
-    Write-Host '[ViaProxy] 正在查询 ViaProxy 官方最新成功构建...'
-    $runsResponse = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/actions/runs?per_page=100" -Headers $Headers
-    $run = $runsResponse.workflow_runs |
-        Where-Object {
-            $_.path -eq '.github/workflows/build.yml' -and
-            $_.head_branch -eq 'main' -and
-            $_.status -eq 'completed' -and
-            $_.conclusion -eq 'success'
-        } |
-        Sort-Object created_at -Descending |
+    Write-Host '[ViaProxy] 正在查询 ViaProxy 官方最新 Release...'
+    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repository/releases/latest" -Headers $Headers
+    if (-not $release -or -not $release.tag_name) {
+        throw '无法获取 ViaProxy 官方最新 Release 信息。'
+    }
+
+    $asset = $release.assets |
+        Where-Object { $_.name -match '^ViaProxy-.+\.jar$' -and $_.name -notmatch '\+java8\.jar$' } |
         Select-Object -First 1
 
-    if (-not $run) {
-        Write-Warning '[ViaProxy] 没有找到官方成功构建，保留当前版本。'
-        exit 0
+    if (-not $asset -or -not $asset.browser_download_url) {
+        throw "官方 Release $($release.tag_name) 中没有找到 Java 17+ ViaProxy JAR。"
     }
 
     if (Test-Path $StatePath -PathType Leaf) {
         try {
             $state = Get-Content -Raw -Path $StatePath | ConvertFrom-Json
-            if ($state.commit -eq $run.head_sha -and (Test-Path $TargetPath -PathType Leaf)) {
+            if ($state.version -eq $asset.name -and $state.release_tag -eq $release.tag_name -and (Test-Path $TargetPath -PathType Leaf)) {
                 $state.last_checked_utc = [DateTimeOffset]::UtcNow.ToString('o')
                 $state | ConvertTo-Json | Set-Content -Encoding UTF8 -Path $StatePath
-                Write-Host "[ViaProxy] 已是最新官方构建 ($($run.head_sha.Substring(0, 8)))。"
+                Write-Host "[ViaProxy] 已是最新官方版本 ($($release.tag_name))。"
                 exit 0
             }
         } catch {
@@ -60,39 +57,21 @@ try {
         }
     }
 
-    $artifactsResponse = Invoke-RestMethod -Uri $run.artifacts_url -Headers $Headers
-    $artifact = $artifactsResponse.artifacts |
-        Where-Object { $_.name -eq 'Artifacts' -and -not $_.expired } |
-        Select-Object -First 1
-
-    if (-not $artifact) {
-        Write-Warning '[ViaProxy] 最新构建的下载产物不存在或已过期，保留当前版本。'
-        exit 0
-    }
-
     New-Item -ItemType Directory -Force -Path $TempRoot | Out-Null
-    $archivePath = Join-Path $TempRoot 'viaproxy-artifacts.zip'
-    Invoke-WebRequest -Uri $artifact.archive_download_url -Headers $Headers -OutFile $archivePath
+    $jarPath = Join-Path $TempRoot $asset.name
+    Write-Host "[ViaProxy] 正在下载 $($asset.name)..."
+    Invoke-WebRequest -Uri $asset.browser_download_url -Headers @{ 'User-Agent' = $Headers['User-Agent'] } -OutFile $jarPath
 
-    if ($artifact.digest -match '^sha256:(.+)$') {
-        $actualDigest = (Get-FileHash -Algorithm SHA256 -Path $archivePath).Hash.ToLowerInvariant()
-        if ($actualDigest -ne $Matches[1].ToLowerInvariant()) {
-            throw "官方构建产物 SHA-256 校验失败。"
+    if ($asset.digest -match '^sha256:(.+)$') {
+        $expectedDigest = $Matches[1].ToLowerInvariant()
+        $actualDigest = (Get-FileHash -Algorithm SHA256 -Path $jarPath).Hash.ToLowerInvariant()
+        if ($actualDigest -ne $expectedDigest) {
+            throw '官方 ViaProxy JAR 的 SHA-256 校验失败。'
         }
     }
 
-    $extractPath = Join-Path $TempRoot 'extracted'
-    Expand-Archive -Path $archivePath -DestinationPath $extractPath -Force
-    $jar = Get-ChildItem -Path $extractPath -Filter '*.jar' -File -Recurse |
-        Where-Object { $_.Name -notmatch '\+java8\.jar$' } |
-        Select-Object -First 1
-
-    if (-not $jar) {
-        throw '官方构建产物中没有找到适用于 Java 17+ 的 ViaProxy JAR。'
-    }
-
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $jarArchive = [System.IO.Compression.ZipFile]::OpenRead($jar.FullName)
+    $jarArchive = [System.IO.Compression.ZipFile]::OpenRead($jarPath)
     try {
         if (-not $jarArchive.GetEntry('net/raphimc/viaproxy/ViaProxy.class')) {
             throw '下载的 JAR 未通过 ViaProxy 主类校验。'
@@ -109,16 +88,16 @@ try {
     }
 
     $stagedPath = "$TargetPath.download"
-    Copy-Item -Path $jar.FullName -Destination $stagedPath -Force
+    Copy-Item -Path $jarPath -Destination $stagedPath -Force
     Move-Item -Path $stagedPath -Destination $TargetPath -Force
 
     @{
-        commit = $run.head_sha
-        version = $jar.Name
+        release_tag = $release.tag_name
+        version = $asset.name
         last_checked_utc = [DateTimeOffset]::UtcNow.ToString('o')
     } | ConvertTo-Json | Set-Content -Encoding UTF8 -Path $StatePath
 
-    Write-Host "[ViaProxy] 已更新到官方构建: $($jar.Name)"
+    Write-Host "[ViaProxy] 已更新到官方 Release: $($release.tag_name) ($($asset.name))"
     Write-Host '[ViaProxy] 新版本将在本次启动中生效。'
 } finally {
     if (Test-Path $TempRoot) {
