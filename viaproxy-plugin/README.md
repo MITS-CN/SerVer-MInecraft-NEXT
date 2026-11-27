@@ -115,6 +115,12 @@ public final class HelloExtension implements NekoGateExtension {
 
 Players run this command as `/hello`. Arguments are available through `context.arguments()`; quoted arguments are supported. The command is intercepted only when an extension has registered that name. Unregistered commands continue to the backend as usual.
 
+### Client-side command completion
+
+Extension commands registered with `api.commands().register(...)` are now added to each eligible player's client-side Brigadier command tree when the backend sends its command tree. Visibility follows the command's configured permission, so players without permission do not receive the extension command in tab completion. The backend command tree is retained; proxy-owned commands are added alongside it.
+
+This command-tree injection applies to Minecraft protocol versions that support Brigadier command trees (1.13 and newer). The current registration API publishes the extension command's root literal; extensions that need structured subcommand and argument suggestions will need to provide syntax metadata in a future API addition. Command execution and permission checks remain authoritative on the proxy and do not rely on client-side visibility.
+
 ### Permission configuration
 
 On startup NekoGate creates `plugins/NekoGate/permissions.properties`. Add a UUID entry to grant permissions:
