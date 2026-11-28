@@ -47,6 +47,7 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
     private volatile NekoGateApiImpl extensionApi;
     private volatile NekoGateExtensionLoader extensionLoader;
     private volatile NekoGateAuthService authService;
+    private volatile NekoGatePermissionManager permissionManager;
 
     @Override
     public void onEnable() {
@@ -56,6 +57,7 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
         this.authService = new NekoGateAuthService(dataDirectory.resolve("auth.sqlite3"), dataDirectory.resolve("auth.properties"));
         this.extensionEvents = new NekoGateEventBus();
         NekoGatePermissionManager permissions = new NekoGatePermissionManager(dataDirectory.resolve("permissions.properties"));
+        this.permissionManager = permissions;
         NekoGateCommandManager commands = new NekoGateCommandManager(permissions);
         NekoGateApiImpl.PlayerService playerService = new NekoGateApiImpl.PlayerService() {
             @Override public List<NekoGateAPI.Player> onlinePlayers() {
@@ -205,6 +207,8 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
                     case "unban" -> unban(required(request, "player"));
                     case "banlist" -> banList();
                     case "list" -> listPlayers();
+                    case "op" -> setOperator(required(request, "player"), true);
+                    case "deop" -> setOperator(required(request, "player"), false);
                     default -> error("unknown action: " + action);
                 };
                 writeResponse(writer, response);
@@ -240,6 +244,24 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
         writer.write(response.toString());
         writer.newLine();
         writer.flush();
+    }
+
+    private JsonObject setOperator(String target, boolean operator) {
+        NekoGatePermissionManager permissions = this.permissionManager;
+        if (permissions == null) return error("permission manager is not available");
+
+        String playerKey = findOnlinePlayer(target)
+                .map(NekoGateAPI.Player::name)
+                .orElse(target);
+        try {
+            permissions.setOperator(playerKey, operator);
+            JsonObject response = new JsonObject();
+            response.addProperty("ok", true);
+            response.addProperty("message", (operator ? "granted OP to " : "revoked OP from ") + playerKey);
+            return response;
+        } catch (RuntimeException error) {
+            return error("could not update OP for " + playerKey + ": " + error.getMessage());
+        }
     }
 
     private JsonObject say(String message) {
