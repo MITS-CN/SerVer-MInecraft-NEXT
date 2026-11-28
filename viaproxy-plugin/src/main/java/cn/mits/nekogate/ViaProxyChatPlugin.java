@@ -46,11 +46,14 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
     private volatile NekoGateEventBus extensionEvents;
     private volatile NekoGateApiImpl extensionApi;
     private volatile NekoGateExtensionLoader extensionLoader;
+    private volatile NekoGateAuthService authService;
 
     @Override
     public void onEnable() {
         Path dataDirectory = Path.of("plugins", "NekoGate");
         this.activityLogger = new PlayerActivityLogger(dataDirectory);
+        openDatabase();
+        this.authService = new NekoGateAuthService(dataDirectory.resolve("auth.sqlite3"), dataDirectory.resolve("auth.properties"));
         this.extensionEvents = new NekoGateEventBus();
         NekoGatePermissionManager permissions = new NekoGatePermissionManager(dataDirectory.resolve("permissions.properties"));
         NekoGateCommandManager commands = new NekoGateCommandManager(permissions);
@@ -70,11 +73,10 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
         };
         DisplayNameManager displayNames = new DisplayNameManager(resolveDisplayNameFile(dataDirectory), playerService);
         this.extensionApi = new NekoGateApiImpl(dataDirectory, this.extensionEvents,
-                playerService, this.activityLogger::logExtensionEvent, commands, permissions, displayNames);
+                playerService, this.activityLogger::logExtensionEvent, commands, permissions, displayNames, this.authService);
         this.extensionLoader = new NekoGateExtensionLoader();
         this.extensionLoader.load(dataDirectory.resolve("extensions"), this.extensionApi);
         ViaProxy.EVENT_MANAGER.register(new ActivityListener());
-        openDatabase();
         int port = readPort();
         try {
             ServerSocket server = new ServerSocket();
@@ -102,6 +104,8 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
         if (server != null) try { server.close(); } catch (IOException ignored) { }
         NekoGateExtensionLoader loader = this.extensionLoader;
         if (loader != null) loader.close();
+        NekoGateAuthService auth = this.authService;
+        if (auth != null) auth.close();
         NekoGateEventBus events = this.extensionEvents;
         if (events != null) events.clear();
         closeDatabase();

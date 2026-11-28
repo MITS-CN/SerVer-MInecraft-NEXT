@@ -1,0 +1,6 @@
+password.minLength=10
+password.maxLength=128
+login.maxFailures=5
+login.baseLockoutSeconds=60
+login.maxLockoutSeconds=900
+login.attemptIntervalMillis=1000

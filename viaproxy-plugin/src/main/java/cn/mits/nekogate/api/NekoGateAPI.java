@@ -10,7 +10,7 @@ import java.util.function.Consumer;
 /** Stable public API exposed to trusted NekoGate extensions. */
 public interface NekoGateAPI {
     int API_VERSION = 1;
-    int API_MINOR_VERSION = 4;
+    int API_MINOR_VERSION = 5;
 
     Path dataDirectory();
     EventBus events();
@@ -19,6 +19,7 @@ public interface NekoGateAPI {
     CommandRegistry commands();
     PermissionService permissions();
     DisplayNameService displayNames();
+    AuthenticationService authentication();
 
     interface EventBus {
         <T> Subscription subscribe(Class<T> eventType, Consumer<? super T> listener);
@@ -52,4 +53,8 @@ public interface NekoGateAPI {
         void reply(String message);
     }
     interface PermissionService { boolean has(Player player, String permission); }
+    interface AuthenticationService {
+        /** True when this player's NekoGate account has an active proxy session. */
+        boolean isAuthenticated(Player player);
+    }
 }

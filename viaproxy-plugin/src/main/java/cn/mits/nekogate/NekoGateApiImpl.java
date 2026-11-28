@@ -14,10 +14,12 @@ final class NekoGateApiImpl implements NekoGateAPI {
     private final NekoGateCommandManager commands;
     private final NekoGatePermissionManager permissions;
     private final DisplayNameService displayNames;
+    private final NekoGateAuthService authentication;
 
     NekoGateApiImpl(Path dataDirectory, NekoGateEventBus events, PlayerService players,
                     AuditService audit, NekoGateCommandManager commands,
-                    NekoGatePermissionManager permissions, DisplayNameService displayNames) {
+                    NekoGatePermissionManager permissions, DisplayNameService displayNames,
+                    NekoGateAuthService authentication) {
         this.dataDirectory = dataDirectory;
         this.events = events;
         this.players = players;
@@ -25,6 +27,7 @@ final class NekoGateApiImpl implements NekoGateAPI {
         this.commands = commands;
         this.permissions = permissions;
         this.displayNames = displayNames;
+        this.authentication = authentication;
     }
 
     @Override public Path dataDirectory() { return this.dataDirectory; }
@@ -34,17 +37,23 @@ final class NekoGateApiImpl implements NekoGateAPI {
     @Override public CommandRegistry commands() { return this.commands; }
     @Override public PermissionService permissions() { return this.permissions; }
     @Override public DisplayNameService displayNames() { return this.displayNames; }
+    @Override public NekoGateAPI.AuthenticationService authentication() { return this.authentication; }
 
     void publish(Object event) { this.events.publish(event); }
 
     Map<String, List<String>> visibleCommands(NekoGateAPI.Player player) {
-        return this.commands.visibleCommands(player);
+        Map<String, List<String>> visible = new java.util.TreeMap<>(this.commands.visibleCommands(player));
+        visible.put("ng", List.of("changepassword", "login", "logout", "register", "status"));
+        return Map.copyOf(visible);
     }
-    boolean dispatchCommand(NekoGateAPI.Player player, String input, boolean authenticated) {
-        return this.commands.dispatch(player, input, message -> {
+    boolean dispatchCommand(NekoGateAPI.Player player, String input, String sessionId) {
+        java.util.function.Consumer<String> reply = message -> {
             if (player != null && player.name() != null) this.players.sendMessage(player.name(), message);
-        }, authenticated);
+        };
+        if (this.authentication.handleCommand(player, input, sessionId, reply)) return true;
+        return this.commands.dispatch(player, input, reply, this.authentication.isAuthenticated(sessionId));
     }
+    void disconnectAuthSession(String sessionId) { this.authentication.disconnect(sessionId); }
     interface PlayerService extends NekoGateAPI.PlayerService { }
     interface AuditService extends NekoGateAPI.AuditService { }
 }
