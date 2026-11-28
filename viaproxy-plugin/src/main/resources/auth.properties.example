@@ -4,3 +4,5 @@ login.maxFailures=5
 login.baseLockoutSeconds=60
 login.maxLockoutSeconds=900
 login.attemptIntervalMillis=1000
+diagnostics.enabled=true
+diagnostics.slowOperationMillis=25
