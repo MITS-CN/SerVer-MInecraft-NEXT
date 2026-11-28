@@ -81,10 +81,13 @@ pub fn read_packet_opt<R: Read>(s: &mut R) -> Result<Option<Vec<u8>>, std::io::E
 }
 
 pub fn write_packet<W: Write>(s: &mut W, data: &[u8]) -> std::io::Result<()> {
+    // Write the complete frame in one operation instead of splitting its
+    // length prefix and payload across separate writes.
     let len = write_varint(data.len() as i32);
-    s.write_all(&len)?;
-    s.write_all(data)?;
-    s.flush()
+    let mut frame = Vec::with_capacity(len.len() + data.len());
+    frame.extend_from_slice(&len);
+    frame.extend_from_slice(data);
+    s.write_all(&frame)
 }
 
 pub fn unwrap_payload(pkt: &[u8], threshold: i32) -> Option<Vec<u8>> {
@@ -177,6 +180,22 @@ pub enum ConnState {
 #[cfg(test)]
 mod handshake_tests {
     use super::*;
+
+    #[test]
+    fn write_packet_emits_length_prefix_and_payload() {
+        let mut output = Vec::new();
+        write_packet(&mut output, &[0x01, 0x02, 0x03]).expect("write packet");
+        assert_eq!(output, vec![0x03, 0x01, 0x02, 0x03]);
+    }
+
+    #[test]
+    fn write_packet_encodes_varint_length() {
+        let payload = vec![0xAB; 130];
+        let mut output = Vec::new();
+        write_packet(&mut output, &payload).expect("write packet");
+        assert_eq!(&output[..2], &[0x82, 0x01]);
+        assert_eq!(&output[2..], payload.as_slice());
+    }
 
     #[test]
     fn parses_handshake_payload_without_frame_length() {
