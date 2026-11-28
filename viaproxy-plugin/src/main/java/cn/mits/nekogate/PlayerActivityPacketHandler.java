@@ -77,6 +77,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         super(connection);
         this.logger = logger;
         this.extensionApi = extensionApi;
+        if (this.extensionApi != null) this.extensionApi.openAuthSession(this.authSessionId);
         ACTIVE_HANDLERS.add(this);
     }
 

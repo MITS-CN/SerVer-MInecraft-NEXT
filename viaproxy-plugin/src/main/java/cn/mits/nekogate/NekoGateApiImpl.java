@@ -48,11 +48,14 @@ final class NekoGateApiImpl implements NekoGateAPI {
     }
     boolean dispatchCommand(NekoGateAPI.Player player, String input, String sessionId) {
         java.util.function.Consumer<String> reply = message -> {
-            if (player != null && player.name() != null) this.players.sendMessage(player.name(), message);
+            if (player != null && player.name() != null && this.authentication.isConnectionActive(sessionId)) {
+                this.players.sendMessage(player.name(), message);
+            }
         };
         if (this.authentication.handleCommand(player, input, sessionId, reply)) return true;
         return this.commands.dispatch(player, input, reply, this.authentication.isAuthenticated(sessionId));
     }
+    void openAuthSession(String sessionId) { this.authentication.openConnection(sessionId); }
     void disconnectAuthSession(String sessionId) { this.authentication.disconnect(sessionId); }
     interface PlayerService extends NekoGateAPI.PlayerService { }
     interface AuditService extends NekoGateAPI.AuditService { }

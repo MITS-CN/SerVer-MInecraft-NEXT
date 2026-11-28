@@ -24,6 +24,7 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
     private final Object databaseLock = new Object();
     private final Connection database;
     private final Map<String, String> sessions = new ConcurrentHashMap<>();
+    private final Set<String> activeConnections = ConcurrentHashMap.newKeySet();
     private final Map<String, String> accountSessions = new ConcurrentHashMap<>();
     private final Map<String, Long> lastAttempts = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor workers;
@@ -97,6 +98,7 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
 
     boolean handleCommand(NekoGateAPI.Player player, String input, String sessionId, Consumer<String> reply) {
         if (player == null || player.name() == null || input == null || sessionId == null) return false;
+        if (!this.activeConnections.contains(sessionId)) return false;
         List<String> tokens = NekoGateCommandManager.tokenize(input);
         if (tokens.isEmpty()) return false;
         String root = tokens.get(0).toLowerCase(Locale.ROOT);
@@ -145,6 +147,9 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
         try {
             this.workers.execute(() -> {
                 try { reply.accept(operation.call()); }
+                catch (IllegalArgumentException invalid) {
+                    reply.accept("§c" + (invalid.getMessage() == null ? "Invalid authentication input." : invalid.getMessage()));
+                }
                 catch (Exception error) {
                     System.err.println("[NekoGate][AUTH] Operation failed: " + error.getClass().getSimpleName());
                     reply.accept("§cNekoGate authentication failed due to an internal error.");
@@ -253,7 +258,16 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
         }
     }
 
+    void openConnection(String sessionId) {
+        if (sessionId != null && !this.closed.get()) this.activeConnections.add(sessionId);
+    }
+
+    boolean isConnectionActive(String sessionId) {
+        return sessionId != null && this.activeConnections.contains(sessionId) && !this.closed.get();
+    }
+
     private boolean createSession(String username, String sessionId) {
+        if (!isConnectionActive(sessionId)) return false;
         synchronized (this.accountSessions) {
             String existing = this.accountSessions.get(username);
             if (existing != null && !existing.equals(sessionId)) return false;
@@ -271,7 +285,12 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
         return true;
     }
 
-    void disconnect(String sessionId) { if (sessionId != null) logout(sessionId); }
+    void disconnect(String sessionId) {
+        if (sessionId != null) {
+            this.activeConnections.remove(sessionId);
+            logout(sessionId);
+        }
+    }
     boolean isAuthenticated(String sessionId) { return sessionId != null && this.sessions.containsKey(sessionId); }
 
     @Override public boolean isAuthenticated(NekoGateAPI.Player player) {
@@ -341,7 +360,8 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
 
     @Override public void close() {
         if (!this.closed.compareAndSet(false, true)) return;
-        this.workers.shutdownNow(); this.sessions.clear(); this.accountSessions.clear(); this.lastAttempts.clear();
+        this.workers.shutdownNow(); this.sessions.clear(); this.accountSessions.clear();
+        this.activeConnections.clear(); this.lastAttempts.clear();
         synchronized (this.databaseLock) { try { this.database.close(); } catch (SQLException ignored) { } }
     }
 }
