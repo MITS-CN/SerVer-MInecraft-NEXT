@@ -37,6 +37,10 @@ final class NekoGateApiImpl implements NekoGateAPI {
 
     void publish(Object event) { this.events.publish(event); }
 
+    boolean hasEventListeners(Class<?> eventType) {
+        return this.events.hasListeners(eventType);
+    }
+
     Map<String, List<String>> visibleCommands(NekoGateAPI.Player player) {
         return this.commands.visibleCommands(player);
     }
