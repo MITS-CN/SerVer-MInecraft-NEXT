@@ -250,11 +250,11 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
         NekoGatePermissionManager permissions = this.permissionManager;
         if (permissions == null) return error("permission manager is not available");
 
-        String playerKey = findOnlinePlayer(target)
-                .map(NekoGateAPI.Player::name)
-                .orElse(target);
+        Optional<NekoGateAPI.Player> onlinePlayer = findOnlinePlayer(target);
+        String playerKey = onlinePlayer.map(NekoGateAPI.Player::name).orElse(target);
+        String uuidKey = onlinePlayer.map(player -> player.uuid() == null ? "" : player.uuid().toString()).orElse("");
         try {
-            permissions.setOperator(playerKey, operator);
+            permissions.setOperator(playerKey, uuidKey, operator);
             JsonObject response = new JsonObject();
             response.addProperty("ok", true);
             response.addProperty("message", (operator ? "granted OP to " : "revoked OP from ") + playerKey);
