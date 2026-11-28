@@ -25,6 +25,11 @@ final class NekoGateEventBus implements NekoGateAPI.EventBus {
         };
     }
 
+    boolean hasListeners(Class<?> eventType) {
+        List<Handler<?>> registered = this.handlers.get(eventType);
+        return registered != null && !registered.isEmpty();
+    }
+
     @SuppressWarnings("unchecked")
     void publish(Object event) {
         if (event == null) return;
