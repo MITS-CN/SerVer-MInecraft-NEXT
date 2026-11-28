@@ -841,7 +841,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     private static String safeCommandForLog(String command) {
         if (command == null) return null;
         String value = command.stripLeading();
-        if (value.matches("(?i)^/?(?:ng|nekogate:ng)\\s+(?:login|register|changepassword)\\b.*$")) {
+        if (value.matches("(?i)^/?(?:[a-z0-9_.-]+:)?ng\\s+(?:login|register|changepassword)\\b.*$")) {
             String[] parts = value.split("\\s+", 3);
             return "/ng " + (parts.length > 1 ? parts[1].toLowerCase(Locale.ROOT) : "auth") + " <redacted>";
         }

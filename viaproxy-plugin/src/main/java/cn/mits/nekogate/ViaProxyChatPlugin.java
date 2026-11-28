@@ -92,6 +92,8 @@ public final class ViaProxyChatPlugin extends ViaProxyPlugin {
             bans.start();
             System.out.println("[NekoGate] Control listening on 127.0.0.1:" + port);
         } catch (IOException e) {
+            NekoGateAuthService auth = this.authService;
+            if (auth != null) auth.close();
             closeDatabase();
             throw new IllegalStateException("Could not bind NekoGate control port " + port, e);
         }

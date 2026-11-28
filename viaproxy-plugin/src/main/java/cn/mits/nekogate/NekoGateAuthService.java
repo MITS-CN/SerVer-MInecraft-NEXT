@@ -21,6 +21,7 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
     private static final int SALT_BYTES = 16, HASH_BYTES = 32;
     private static final int ARGON_MEMORY_KIB = 64 * 1024, ARGON_ITERATIONS = 3, ARGON_PARALLELISM = 1;
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final String DUMMY_HASH = createDummyHash();
     private final Object databaseLock = new Object();
     private final Connection database;
     private final Map<String, String> sessions = new ConcurrentHashMap<>();
@@ -190,16 +191,20 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
                     "SELECT password_hash,failed_attempts,locked_until FROM accounts WHERE username=?")) {
                 statement.setString(1, username);
                 try (ResultSet result = statement.executeQuery()) {
-                    if (!result.next()) return "§cInvalid NekoGate account or password.";
-                    account = new Account(result.getString(1), result.getInt(2), result.getLong(3));
+                    if (!result.next()) {
+                        account = new Account(DUMMY_HASH, 0, 0);
+                    } else {
+                        account = new Account(result.getString(1), result.getInt(2), result.getLong(3));
+                    }
                 }
             }
         }
         if (account.lockedUntil() > Instant.now().getEpochSecond()) {
             return "§cInvalid NekoGate account or password. Please wait before retrying.";
         }
-        if (!verifyPassword(password.toCharArray(), account.passwordHash())) {
-            recordFailure(username, account.failedAttempts());
+        boolean passwordMatches = verifyPassword(password.toCharArray(), account.passwordHash());
+        if (!passwordMatches) {
+            if (account.passwordHash() != DUMMY_HASH) recordFailure(username, account.failedAttempts());
             return "§cInvalid NekoGate account or password.";
         }
         synchronized (this.databaseLock) {
@@ -259,7 +264,8 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
     }
 
     void openConnection(String sessionId) {
-        if (sessionId != null && !this.closed.get()) this.activeConnections.add(sessionId);
+        if (sessionId == null || this.closed.get()) return;
+        synchronized (this.accountSessions) { this.activeConnections.add(sessionId); }
     }
 
     boolean isConnectionActive(String sessionId) {
@@ -267,8 +273,8 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
     }
 
     private boolean createSession(String username, String sessionId) {
-        if (!isConnectionActive(sessionId)) return false;
         synchronized (this.accountSessions) {
+            if (!isConnectionActive(sessionId)) return false;
             String existing = this.accountSessions.get(username);
             if (existing != null && !existing.equals(sessionId)) return false;
             this.accountSessions.put(username, sessionId);
@@ -278,17 +284,21 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
     }
 
     private boolean logout(String sessionId) {
-        String username = this.sessions.remove(sessionId);
-        this.lastAttempts.remove(sessionId);
-        if (username == null) return false;
-        this.accountSessions.remove(username, sessionId);
-        return true;
+        synchronized (this.accountSessions) {
+            String username = this.sessions.remove(sessionId);
+            this.lastAttempts.remove(sessionId);
+            if (username == null) return false;
+            this.accountSessions.remove(username, sessionId);
+            return true;
+        }
     }
 
     void disconnect(String sessionId) {
         if (sessionId != null) {
-            this.activeConnections.remove(sessionId);
-            logout(sessionId);
+            synchronized (this.accountSessions) {
+                this.activeConnections.remove(sessionId);
+                logout(sessionId);
+            }
         }
     }
     boolean isAuthenticated(String sessionId) { return sessionId != null && this.sessions.containsKey(sessionId); }
@@ -311,6 +321,10 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
         if (length < integer("password.minLength", 10) || length > integer("password.maxLength", 128)) {
             throw new IllegalArgumentException("Password length is outside configured limits.");
         }
+    }
+
+    private static String createDummyHash() {
+        return hashPassword("NekoGate timing equalization secret".toCharArray());
     }
 
     private static String hashPassword(char[] password) {
