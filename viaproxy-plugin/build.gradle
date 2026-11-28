@@ -27,6 +27,15 @@ jar {
     from {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
     }
+
+    // Dependencies such as SQLite JDBC and Bouncy Castle may be signed.
+    // Their signatures no longer match after unpacking and merging the JAR,
+    // so remove signature metadata from the shaded plugin.
+    exclude 'META-INF/*.SF',
+            'META-INF/*.DSA',
+            'META-INF/*.RSA',
+            'META-INF/*.EC',
+            'META-INF/SIG-*'
 }
 
 tasks.register('apiJar', Jar) {
