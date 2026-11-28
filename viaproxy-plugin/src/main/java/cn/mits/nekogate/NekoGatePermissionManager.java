@@ -4,9 +4,12 @@ import cn.mits.nekogate.api.NekoGateAPI;
 
 import java.io.IOException;
 import java.io.Reader;
+import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Properties;
@@ -14,8 +17,10 @@ import java.util.Set;
 
 final class NekoGatePermissionManager implements NekoGateAPI.PermissionService {
     private final Properties grants = new Properties();
+    private final Path file;
 
     NekoGatePermissionManager(Path file) {
+        this.file = file;
         try {
             Files.createDirectories(file.getParent());
             if (Files.notExists(file)) {
@@ -24,7 +29,8 @@ final class NekoGatePermissionManager implements NekoGateAPI.PermissionService {
                         "# Use player name (recommended for tunnel/offline-mode networks) or UUID as the key.\n" +
                         "# Examples: Steve=nekogate.nametag and <uuid>=example.hello\n" +
                         "# '*' grants every permission; 'nekogate.example.*' grants that namespace.\n" +
-                        "# Permissions are denied by default. Restart ViaProxy after editing.\n",
+                        "# No player receives permissions by default. Use the Rust console: op <player> / deop <player>.\n" +
+                        "# Permissions are denied by default. Manual edits take effect after restarting ViaProxy.\n",
                         StandardCharsets.UTF_8);
             }
             try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
@@ -36,7 +42,7 @@ final class NekoGatePermissionManager implements NekoGateAPI.PermissionService {
     }
 
     @Override
-    public boolean has(NekoGateAPI.Player player, String permission) {
+    public synchronized boolean has(NekoGateAPI.Player player, String permission) {
         if (player == null || permission == null || permission.isBlank()) return false;
 
         // UUID grants remain supported for installations with stable authenticated UUIDs.
@@ -60,6 +66,50 @@ final class NekoGatePermissionManager implements NekoGateAPI.PermissionService {
             if (node.endsWith(".*") && requested.startsWith(node.substring(0, node.length() - 1))) return true;
         }
         return false;
+    }
+
+    /**
+     * Grants or revokes full extension access for a player name or UUID.
+     * This is called only by the local Rust console control action.
+     */
+    synchronized void setOperator(String playerNameOrUuid, boolean operator) {
+        if (playerNameOrUuid == null || playerNameOrUuid.isBlank()) {
+            throw new IllegalArgumentException("player name or UUID is required");
+        }
+
+        Properties previous = new Properties();
+        previous.putAll(this.grants);
+        String existingKey = null;
+        for (String key : this.grants.stringPropertyNames()) {
+            if (key.equalsIgnoreCase(playerNameOrUuid)) {
+                existingKey = key;
+                break;
+            }
+        }
+
+        if (existingKey != null) this.grants.remove(existingKey);
+        if (operator) this.grants.setProperty(playerNameOrUuid, "*");
+
+        Path temporary = this.file.resolveSibling(this.file.getFileName() + ".tmp");
+        try {
+            try (Writer writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
+                this.grants.store(writer, "NekoGate extension permissions");
+            }
+            try {
+                Files.move(temporary, this.file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException ignored) {
+                Files.move(temporary, this.file, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException error) {
+            this.grants.clear();
+            this.grants.putAll(previous);
+            try {
+                Files.deleteIfExists(temporary);
+            } catch (IOException cleanupError) {
+                error.addSuppressed(cleanupError);
+            }
+            throw new IllegalStateException("Could not save extension permissions: " + error.getMessage(), error);
+        }
     }
 
     private static void addNodes(Set<String> nodes, String configured) {
