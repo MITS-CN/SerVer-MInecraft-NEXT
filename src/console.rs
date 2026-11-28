@@ -99,13 +99,20 @@ fn handle_cmd(cmd: &str, _players: &Players, logger: &Logger) -> (String, bool) 
                 _ => format!("[ERR] 用法: {name} <player> [reason]"),
             }
         }
+        "op" | "deop" => {
+            if rest.is_empty() {
+                format!("[ERR] 用法: {name} <player|uuid>")
+            } else {
+                execute(&name.to_ascii_lowercase(), serde_json::json!({ "player": rest }), logger)
+            }
+        }
         "unban" => {
             if rest.is_empty() { "[ERR] 用法: unban <player|uuid>".to_string() }
             else { execute("unban", serde_json::json!({ "player": rest }), logger) }
         }
         "banlist" => execute("banlist", serde_json::json!({}), logger),
         "list" => execute("list", serde_json::json!({}), logger),
-        "help" => "[Commands] say <msg> | tell <player> <msg> | kick <player> [reason] | ban <player> [reason] | unban <player|uuid> | banlist | list | quit".to_string(),
+        "help" => "[Commands] say <msg> | tell <player> <msg> | kick <player> [reason] | ban <player> [reason] | op <player|uuid> | deop <player|uuid> | unban <player|uuid> | banlist | list | quit".to_string(),
         "quit" | "exit" => {
             let stop = crate::util::pick_text(&logger.texts().stop_msgs);
             logger.info(&stop);
