@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('help', 'all', 'build', 'rust', 'plugin', 'authme-bridge', 'run', 'fmt', 'fmt-check', 'test', 'clean')]
+    [ValidateSet('help', 'all', 'build', 'rust', 'plugin', 'run', 'fmt', 'fmt-check', 'test', 'clean')]
     [string]$Target = 'all',
 
     [string[]]$ProgramArgs = @()
@@ -40,15 +40,14 @@ try {
         'help' {
             @'
 NekoGate build targets:
-  all / build       Build Rust proxy and both Java plugins
+  all / build       Build Rust proxy and ViaProxy plugin
   rust              Build the Rust proxy (release)
-  plugin            Build and copy ViaProxy plugin to ./plugins/
-  authme-bridge     Build and copy AuthMe bridge to ./plugins/
+  plugin            Build and install the ViaProxy plugin to ./plugins/
   run               Run the Rust proxy (extra args: -ProgramArgs ...)
   fmt               Format Rust sources
   fmt-check         Check Rust formatting
   test              Run Rust tests
-  clean             Clean Rust and Java build outputs
+  clean             Clean Rust and ViaProxy plugin build outputs
 
 Examples:
   .\scripts\build.ps1
@@ -60,7 +59,6 @@ Examples:
             Invoke-Checked 'cargo' @('build', '--release')
             $gradle = Get-GradleCommand
             Invoke-Checked $gradle @('-p', 'viaproxy-plugin', 'clean', 'installPlugin')
-            Invoke-Checked $gradle @('-p', 'authme-bridge', 'clean', 'installBridge')
         }
         'rust' {
             Invoke-Checked 'cargo' @('build', '--release')
@@ -68,10 +66,6 @@ Examples:
         'plugin' {
             $gradle = Get-GradleCommand
             Invoke-Checked $gradle @('-p', 'viaproxy-plugin', 'clean', 'installPlugin')
-        }
-        'authme-bridge' {
-            $gradle = Get-GradleCommand
-            Invoke-Checked $gradle @('-p', 'authme-bridge', 'clean', 'installBridge')
         }
         'run' {
             Invoke-Checked 'cargo' (@('run', '--release', '--') + $ProgramArgs)
@@ -89,7 +83,6 @@ Examples:
             Invoke-Checked 'cargo' @('clean')
             $gradle = Get-GradleCommand
             Invoke-Checked $gradle @('-p', 'viaproxy-plugin', 'clean')
-            Invoke-Checked $gradle @('-p', 'authme-bridge', 'clean')
         }
     }
 }

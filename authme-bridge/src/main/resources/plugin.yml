@@ -1,7 +1,0 @@
-name: NekoGateAuthMeBridge
-version: 1.0.0
-main: cn.mits.nekogate.authme.NekoGateAuthMeBridge
-api-version: '1.13'
-depend: [AuthMe]
-authors: [MITS-CN]
-description: Relays AuthMe authentication state to the NekoGate ViaProxy plugin.

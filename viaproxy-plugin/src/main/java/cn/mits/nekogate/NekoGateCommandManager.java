@@ -92,7 +92,7 @@ final class NekoGateCommandManager implements NekoGateAPI.CommandRegistry {
 
         Consumer<String> safeReply = reply == null ? ignored -> { } : reply;
         if (!authenticated) {
-            safeReply.accept("§cYou must log in with AuthMe before using extension commands.");
+            safeReply.accept("§cAuthentication has not been verified; extension commands are locked.");
             return true;
         }
         if (!this.permissions.has(player, registration.permission())) {
