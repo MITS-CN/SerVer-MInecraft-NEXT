@@ -179,7 +179,11 @@ login.maxFailures=5
 login.baseLockoutSeconds=60
 login.maxLockoutSeconds=900
 login.attemptIntervalMillis=1000
+diagnostics.enabled=true
+diagnostics.slowOperationMillis=25
 ```
+
+认证诊断默认开启，会在 ViaProxy 控制台输出认证队列等待、Argon2、SQLite、结果回传耗时，以及 Java 堆内存和 GC 累计指标；超过阈值的同步命令分发/扩展事件监听会输出 `slow_stage`。日志不会记录账号名、密码或密码哈希。排查完成后可将 `diagnostics.enabled=false` 关闭。
 
 **离线模式安全提醒：** 离线服务器的 Minecraft 玩家名和 UUID 都不能证明 Mojang 账号所有权。NekoGate 因此使用独立账号名和密码验证；请不要把 NekoGate 密码复用于其他服务。
 
