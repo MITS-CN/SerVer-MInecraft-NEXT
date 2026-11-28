@@ -45,6 +45,10 @@ final class NekoGateApiImpl implements NekoGateAPI {
         finally { this.authentication.recordSynchronousTiming("event_publish", System.nanoTime() - startedAt); }
     }
 
+    boolean hasEventListeners(Class<?> eventType) {
+        return this.events.hasListeners(eventType);
+    }
+
     Map<String, List<String>> visibleCommands(NekoGateAPI.Player player) {
         Map<String, List<String>> visible = new java.util.TreeMap<>(this.commands.visibleCommands(player));
         visible.put("ng", List.of("changepassword", "login", "logout", "register", "status"));

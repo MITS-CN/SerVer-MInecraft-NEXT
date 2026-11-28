@@ -231,6 +231,9 @@ final class PlayerActivityPacketHandler extends PacketHandler {
 
     private void logRawServerChat(byte[] data, int protocolVersion) {
         if (data == null || data.length == 0) return;
+        if (!this.logger.isServerChatLoggingEnabled()
+                && (this.extensionApi == null
+                || !this.extensionApi.hasEventListeners(NekoGateEvents.ServerChat.class))) return;
         try {
             ByteBuf buffer = Unpooled.wrappedBuffer(data);
             try {
@@ -641,6 +644,16 @@ final class PlayerActivityPacketHandler extends PacketHandler {
 
     private void logRawSystemMessage(byte[] data) {
         if (data == null || data.length == 0) return;
+        boolean needsSystemMessage = this.logger.isSystemMessageLoggingEnabled()
+                || (this.extensionApi != null
+                && this.extensionApi.hasEventListeners(NekoGateEvents.SystemMessage.class));
+        boolean needsWhisper = this.logger.isWhisperLoggingEnabled()
+                || (this.extensionApi != null
+                && this.extensionApi.hasEventListeners(NekoGateEvents.Whisper.class));
+        // SYSTEM_CHAT can include frequent action-bar/status updates. Avoid allocating
+        // buffers, scanning NBT, constructing Tag trees, and serializing components
+        // when neither audit logging nor an extension consumes these events.
+        if (!needsSystemMessage && !needsWhisper) return;
         if (data.length > MAX_SYSTEM_MESSAGE_NBT_BYTES) {
             logNbtDiagnostic(data.length, "packet_too_large");
             return;
