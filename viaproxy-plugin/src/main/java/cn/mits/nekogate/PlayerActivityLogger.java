@@ -118,6 +118,10 @@ final class PlayerActivityLogger {
         return this.enabled && this.logSystemMessages;
     }
 
+    boolean isWhisperLoggingEnabled() {
+        return this.enabled && this.logWhispers;
+    }
+
     boolean isNbtDiagnosticsEnabled() {
         return this.debugNbt;
     }
