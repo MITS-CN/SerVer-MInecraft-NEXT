@@ -13,6 +13,7 @@ dependencies {
     compileOnly('net.raphimc:ViaProxy:3.4.14') { transitive = false }
     // Bundle SQLite JDBC and its native libraries so the plugin is self-contained.
     implementation('org.xerial:sqlite-jdbc:3.50.3.0')
+    implementation('org.bouncycastle:bcprov-jdk18on:1.81')
 }
 
 tasks.withType(JavaCompile).configureEach {

@@ -62,8 +62,8 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     private volatile Double z;
     private volatile Float yaw;
     private volatile Float pitch;
-    // Fail closed until a trusted authentication signal is available.
-    private volatile boolean authenticationVerified;
+    // Unique per proxy connection; never derived from offline-mode UUIDs or player names.
+    private final String authSessionId = UUID.randomUUID().toString();
     private volatile Instant loginAttemptAt;
     private volatile long loginDiagnosticPackets;
     private volatile long loginDiagnosticBytes;
@@ -77,6 +77,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
         super(connection);
         this.logger = logger;
         this.extensionApi = extensionApi;
+        if (this.extensionApi != null) this.extensionApi.openAuthSession(this.authSessionId);
         ACTIVE_HANDLERS.add(this);
     }
 
@@ -124,21 +125,23 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             String command = readString(packet, "command");
             if (command != null && !command.isBlank()) {
                 String normalized = command.startsWith("/") ? command : "/" + command;
-                this.logger.logCommand(player, uuid, normalized);
-                publish(new NekoGateEvents.Command(Instant.now(), apiPlayer(), normalized));
+                String safeCommand = safeCommandForLog(normalized);
+                this.logger.logCommand(player, uuid, safeCommand);
+                publish(new NekoGateEvents.Command(Instant.now(), apiPlayer(), safeCommand));
                 logWhisperCommand(player, uuid, normalized);
                 if (this.extensionApi != null && this.extensionApi.dispatchCommand(
-                        apiPlayer(), normalized, this.authenticationVerified)) return false;
+                        apiPlayer(), normalized, this.authSessionId)) return false;
             }
         } else {
             String message = readString(packet, "message");
             if (message == null || message.isBlank()) return true;
             if (message.startsWith("/")) {
-                this.logger.logCommand(player, uuid, message);
-                publish(new NekoGateEvents.Command(Instant.now(), apiPlayer(), message));
+                String safeCommand = safeCommandForLog(message);
+                this.logger.logCommand(player, uuid, safeCommand);
+                publish(new NekoGateEvents.Command(Instant.now(), apiPlayer(), safeCommand));
                 logWhisperCommand(player, uuid, message);
                 if (this.extensionApi != null && this.extensionApi.dispatchCommand(
-                        apiPlayer(), message, this.authenticationVerified)) return false;
+                        apiPlayer(), message, this.authSessionId)) return false;
             } else {
                 this.logger.logChat(player, uuid, message);
                 publish(new NekoGateEvents.Chat(Instant.now(), apiPlayer(), message));
@@ -205,6 +208,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
 
     void onDisconnect() {
         ACTIVE_HANDLERS.remove(this);
+        if (this.extensionApi != null) this.extensionApi.disconnectAuthSession(this.authSessionId);
         this.backendEntityNames.clear();
         this.backendEntityIds.clear();
         this.overriddenHeadNameEntities.clear();
@@ -817,7 +821,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             markLoginAttempt(command);
             logWhisperCommand(player, playerUuid(), command);
             return this.extensionApi == null || !this.extensionApi.dispatchCommand(
-                    apiPlayer(), command, this.authenticationVerified);
+                    apiPlayer(), command, this.authSessionId);
         } catch (RuntimeException ignored) {
             // Malformed or version-specific payloads must never affect packet forwarding.
             return true;
@@ -835,9 +839,13 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     }
 
     private static String safeCommandForLog(String command) {
-        if (command != null && command.stripLeading().matches("(?i)^/?login(?:\\s+.*)?$")) {
-            return "/login <redacted>";
+        if (command == null) return null;
+        String value = command.stripLeading();
+        if (value.matches("(?i)^/?(?:[a-z0-9_.-]+:)?ng\\s+(?:login|register|changepassword)\\b.*$")) {
+            String[] parts = value.split("\\s+", 3);
+            return "/ng " + (parts.length > 1 ? parts[1].toLowerCase(Locale.ROOT) : "auth") + " <redacted>";
         }
+        if (value.matches("(?i)^/?login(?:\\s+.*)?$")) return "/login <redacted>";
         return command;
     }
 

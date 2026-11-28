@@ -37,7 +37,7 @@ final class NekoGateCommandManager implements NekoGateAPI.CommandRegistry {
     @Override
     public NekoGateAPI.Subscription register(String name, String permission, String description,
                                               List<String> subcommands, NekoGateAPI.CommandExecutor executor) {
-        if (name == null || !name.matches("[A-Za-z0-9_-]{1,32}")) {
+        if (name == null || !name.matches("[A-Za-z0-9_-]{1,32}") || name.equalsIgnoreCase("ng")) {
             throw new IllegalArgumentException("Command name must be 1-32 letters, digits, '_' or '-'");
         }
         if (permission == null || !permission.matches("[A-Za-z0-9_.*-]{1,128}")) {
@@ -110,7 +110,7 @@ final class NekoGateCommandManager implements NekoGateAPI.CommandRegistry {
         return true;
     }
 
-    private static List<String> tokenize(String input) {
+    static List<String> tokenize(String input) {
         String value = input.trim();
         if (value.startsWith("/")) value = value.substring(1);
         List<String> tokens = new ArrayList<>();

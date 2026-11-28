@@ -152,6 +152,37 @@ help
 
 封禁数据库默认保存在 `plugins/NekoGate/bans.sqlite3`。请定期备份该文件；删除它会丢失本地封禁记录。封禁检查由 ViaProxy 插件执行，命令和封禁数据都不依赖后端服务器的 RCON。
 
+## NekoGate 独立账号认证
+
+NekoGate 提供一套只运行在 ViaProxy 插件内的独立账号系统，与后端 Minecraft 登录、AuthMe 或其他服务端登录插件互不干扰。它不控制玩家能否进入服务器，只用于验证 NekoGate 自己的扩展命令/API 权限。服务器原有的 `/login`、`/register` 等命令仍会正常转发给后端。
+
+玩家账号名由玩家自行选择，不绑定 Minecraft UUID，也不要求与游戏昵称相同。可用命令：
+
+| 命令 | 用法 |
+| --- | --- |
+| 注册 | `/ng register <账号> <密码> <确认密码>` |
+| 登录 | `/ng login <账号> <密码>` |
+| 登出 | `/ng logout` |
+| 修改密码 | `/ng changepassword <旧密码> <新密码>` |
+| 查看状态 | `/ng status` |
+
+账号名长度为 3–32 位，只允许英文字母、数字和下划线；密码默认至少 10 位，最多 128 位。密码参数如需包含空格，请用引号括起。NekoGate 密码必须与后端 AuthMe/服务器密码分开。
+
+账号保存在独立的 `plugins/NekoGate/auth.sqlite3`，与封禁数据库 `bans.sqlite3` 分离。密码使用 Argon2id（每个账号独立随机盐）哈希，不保存明文；SQL 全部使用参数化语句。连续登录失败会触发逐步延长的临时锁定，同一连接的认证命令也有速率限制。会话绑定到单次 ViaProxy 连接，断开连接或执行 `/ng logout` 后立即失效；同一账号不能同时在多个连接登录。
+
+首次启动会自动生成 `plugins/NekoGate/auth.properties`，可调整以下安全参数：
+
+```properties
+password.minLength=10
+password.maxLength=128
+login.maxFailures=5
+login.baseLockoutSeconds=60
+login.maxLockoutSeconds=900
+login.attemptIntervalMillis=1000
+```
+
+**离线模式安全提醒：** 离线服务器的 Minecraft 玩家名和 UUID 都不能证明 Mojang 账号所有权。NekoGate 因此使用独立账号名和密码验证；请不要把 NekoGate 密码复用于其他服务。
+
 ## 玩家活动日志
 
 ViaProxy 插件首次启动时会生成 `plugins/NekoGate/config.properties`。默认配置不会记录玩家活动：
