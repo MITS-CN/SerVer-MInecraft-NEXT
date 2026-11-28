@@ -1,5 +1,6 @@
 # NekoGate / NekoProxy build shortcuts
 # Requires: cargo (Rust), gradle, and a JDK on PATH.
+# Java plugin JARs are installed into ./plugins/ after successful builds.
 
 .PHONY: help all build rust plugin authme-bridge run fmt fmt-check test clean
 
@@ -10,8 +11,8 @@ help:
 	@echo   make all             Build Rust proxy, ViaProxy plugin, and AuthMe bridge
 	@echo   make build           Alias for all
 	@echo   make rust            Build the Rust proxy in release mode
-	@echo   make plugin          Build the ViaProxy plugin
-	@echo   make authme-bridge   Build the AuthMe companion plugin
+	@echo   make plugin          Build and install the ViaProxy plugin into ./plugins/
+	@echo   make authme-bridge   Build and install the AuthMe bridge into ./plugins/
 	@echo   make run             Run the Rust proxy (pass extra args with ARGS=...)
 	@echo   make fmt             Format Rust sources
 	@echo   make fmt-check       Check Rust formatting without changing files
@@ -26,10 +27,10 @@ rust:
 	cargo build --release
 
 plugin:
-	gradle -p viaproxy-plugin clean build
+	gradle -p viaproxy-plugin clean installPlugin
 
 authme-bridge:
-	gradle -p authme-bridge clean build
+	gradle -p authme-bridge clean installBridge
 
 run:
 	cargo run --release -- $(ARGS)
@@ -48,6 +49,10 @@ clean:
 	gradle -p viaproxy-plugin clean
 	gradle -p authme-bridge clean
 
+# Windows users without GNU Make can run:
+#   powershell -ExecutionPolicy Bypass -File scripts/build.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts/build.ps1 -Target plugin
+#
 # Example:
 #   make run ARGS='--motd "NekoProxy | Shiguangxu" --log-level DEBUG'
 #   make run ARGS='--listen 0.0.0.0:25566 --target play.example.com:25565'

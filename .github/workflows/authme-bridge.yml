@@ -25,7 +25,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.1.0"
-      - name: Build ViaProxy plugin
-        run: gradle -p viaproxy-plugin clean build
-      - name: Build AuthMe bridge
-        run: gradle -p authme-bridge clean build
+      - name: Build and install ViaProxy plugin
+        run: gradle -p viaproxy-plugin clean installPlugin
+      - name: Build and install AuthMe bridge
+        run: gradle -p authme-bridge clean installBridge
+      - name: Verify plugin JARs were copied
+        run: |
+          test -f plugins/nekogate-viaproxy-plugin.jar
+          test -f plugins/nekogate-authme-bridge.jar

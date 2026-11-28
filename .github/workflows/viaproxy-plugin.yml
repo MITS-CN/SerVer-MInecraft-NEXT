@@ -21,8 +21,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Test Rust proxy
         run: cargo test --all-targets
-      - name: Build plugin
-        run: gradle -p viaproxy-plugin clean build
+      - name: Build and install plugin
+        run: gradle -p viaproxy-plugin clean installPlugin
+      - name: Verify plugin was copied
+        run: test -f plugins/nekogate-viaproxy-plugin.jar
       - name: Upload plugin JAR
         uses: actions/upload-artifact@v4
         with:
