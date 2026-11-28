@@ -39,7 +39,11 @@ final class NekoGateApiImpl implements NekoGateAPI {
     @Override public DisplayNameService displayNames() { return this.displayNames; }
     @Override public NekoGateAPI.AuthenticationService authentication() { return this.authentication; }
 
-    void publish(Object event) { this.events.publish(event); }
+    void publish(Object event) {
+        long startedAt = System.nanoTime();
+        try { this.events.publish(event); }
+        finally { this.authentication.recordSynchronousTiming("event_publish", System.nanoTime() - startedAt); }
+    }
 
     Map<String, List<String>> visibleCommands(NekoGateAPI.Player player) {
         Map<String, List<String>> visible = new java.util.TreeMap<>(this.commands.visibleCommands(player));
@@ -47,6 +51,15 @@ final class NekoGateApiImpl implements NekoGateAPI {
         return Map.copyOf(visible);
     }
     boolean dispatchCommand(NekoGateAPI.Player player, String input, String sessionId) {
+        long startedAt = System.nanoTime();
+        try {
+            return dispatchCommandInternal(player, input, sessionId);
+        } finally {
+            this.authentication.recordSynchronousTiming("command_dispatch", System.nanoTime() - startedAt);
+        }
+    }
+
+    private boolean dispatchCommandInternal(NekoGateAPI.Player player, String input, String sessionId) {
         java.util.function.Consumer<String> reply = message -> {
             if (player != null && player.name() != null && this.authentication.isConnectionActive(sessionId)) {
                 this.players.sendMessage(player.name(), message);
