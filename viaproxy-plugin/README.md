@@ -128,19 +128,26 @@ This command-tree injection applies to Minecraft protocol versions that support 
 
 ### Permission configuration
 
-On startup NekoGate creates `plugins/NekoGate/permissions.properties`. Add a player-name entry to grant permissions. This is recommended for tunnel/offline-mode networks, where a stable player UUID may not be available:
+On startup NekoGate creates `plugins/NekoGate/permissions.properties`. Permissions are denied by default: the generated file contains comments only and grants no player any extension permission.
 
-```properties
-# Exact permission (player name, case-insensitive)
-Steve=example.hello
+Manage full access from either Rust console entry (standard input or the local TCP console at `127.0.0.1:25625`):
 
-# Wildcard permission
-Alex=example.*
-
-# Full access to extension commands
-Admin=*
+```text
+op Steve
+deop Steve
 ```
 
-UUID keys remain supported when a stable authenticated UUID is available. Multiple nodes are comma-separated. A `namespace.*` grant includes all permission nodes under that namespace. Changes are read at ViaProxy startup; restart ViaProxy after editing the file.
+`op` grants the `*` permission node and `deop` removes that grant. Both commands work for online or offline player names; UUIDs are accepted when the player is offline or when targeting a UUID directly. For an online player identified by UUID, the stored key is their current player name. Changes are written immediately and take effect without restarting ViaProxy. These commands are not registered as Minecraft in-game commands and cannot be run by players.
 
+The file also supports manual permission grants by player name (case-insensitive) or UUID:
+
+```properties
+# Exact permission
+Steve=example.hello
+
+# Namespace wildcard
+Alex=example.*
+```
+
+Multiple nodes are comma-separated. A `namespace.*` grant includes all permission nodes under that namespace. Manual file edits are loaded at ViaProxy startup; restart ViaProxy after editing.
 Extensions run inside the ViaProxy process with the same operating-system permissions as NekoGate. Only install JARs from sources you trust. API major version remains 1; this release adds the command and permission services compatibly.
