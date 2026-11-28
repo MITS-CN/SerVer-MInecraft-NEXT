@@ -32,5 +32,5 @@ if ($systemGradle) {
         Expand-Archive -Path $zip -DestinationPath $install -Force
     }
 }
-& $gradle -p (Join-Path $root 'viaproxy-plugin') build
+& $gradle -p (Join-Path $root 'viaproxy-plugin') installPlugin
 exit $LASTEXITCODE
