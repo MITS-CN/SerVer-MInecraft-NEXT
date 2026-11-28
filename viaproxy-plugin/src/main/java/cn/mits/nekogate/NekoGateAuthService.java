@@ -192,21 +192,24 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
                 statement.setString(1, username);
                 try (ResultSet result = statement.executeQuery()) {
                     if (!result.next()) {
-                        account = new Account(DUMMY_HASH, 0, 0);
+                        account = new Account(DUMMY_HASH, 0, 0, false);
                     } else {
-                        account = new Account(result.getString(1), result.getInt(2), result.getLong(3));
+                        account = new Account(result.getString(1), result.getInt(2), result.getLong(3), true);
                     }
                 }
             }
         }
+        if (!passwordWithinMaximum(password)) return "§cInvalid NekoGate account or password.";
         if (account.lockedUntil() > Instant.now().getEpochSecond()) {
-            return "§cInvalid NekoGate account or password. Please wait before retrying.";
+            verifyPassword(password.toCharArray(), DUMMY_HASH);
+            return "§cInvalid NekoGate account or password.";
         }
         boolean passwordMatches = verifyPassword(password.toCharArray(), account.passwordHash());
         if (!passwordMatches) {
-            if (account.passwordHash() != DUMMY_HASH) recordFailure(username, account.failedAttempts());
+            if (account.exists()) recordFailure(username, account.failedAttempts());
             return "§cInvalid NekoGate account or password.";
         }
+        if (!account.exists()) return "§cInvalid NekoGate account or password.";
         synchronized (this.databaseLock) {
             try (PreparedStatement statement = this.database.prepareStatement(
                     "UPDATE accounts SET failed_attempts=0,locked_until=0,updated_at=? WHERE username=?")) {
@@ -221,6 +224,7 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
     private String changePassword(String playerName, String oldPassword, String newPassword, String sessionId) throws Exception {
         String username = normalizeUsername(playerName);
         if (!isAuthenticated(sessionId)) return "§cLog in to NekoGate first.";
+        if (!passwordWithinMaximum(oldPassword)) return "§cThe old NekoGate password is incorrect.";
         validatePassword(newPassword);
         String stored;
         synchronized (this.databaseLock) {
@@ -315,6 +319,10 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
         return name.toLowerCase(Locale.ROOT);
     }
 
+    private boolean passwordWithinMaximum(String password) {
+        return password != null && password.codePointCount(0, password.length()) <= integer("password.maxLength", 128);
+    }
+
     private void validatePassword(String password) {
         if (password == null) throw new IllegalArgumentException("Password is required.");
         int length = password.codePointCount(0, password.length());
@@ -370,7 +378,7 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
         return error.getErrorCode() == 19 || (error.getMessage() != null
                 && error.getMessage().toLowerCase(Locale.ROOT).contains("constraint"));
     }
-    private record Account(String passwordHash, int failedAttempts, long lockedUntil) { }
+    private record Account(String passwordHash, int failedAttempts, long lockedUntil, boolean exists) { }
 
     @Override public void close() {
         if (!this.closed.compareAndSet(false, true)) return;
