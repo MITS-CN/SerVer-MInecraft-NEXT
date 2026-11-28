@@ -5,6 +5,9 @@ import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
 import org.bouncycastle.crypto.params.Argon2Parameters;
 
 import java.io.IOException;
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryUsage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -33,6 +36,7 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
     private final ThreadPoolExecutor workers;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final Properties config = new Properties();
+    private final ThreadLocal<AuthTiming> activeTiming = new ThreadLocal<>();
 
     NekoGateAuthService(Path databasePath, Path configPath) {
         try {
@@ -73,6 +77,8 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
         defaults.setProperty("login.baseLockoutSeconds", "60");
         defaults.setProperty("login.maxLockoutSeconds", "900");
         defaults.setProperty("login.attemptIntervalMillis", "1000");
+        defaults.setProperty("diagnostics.enabled", "true");
+        defaults.setProperty("diagnostics.slowOperationMillis", "25");
         if (Files.exists(path)) try (var input = Files.newInputStream(path)) { this.config.load(input); }
         boolean changed = false;
         for (String key : defaults.stringPropertyNames()) {
@@ -88,10 +94,15 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
             }
         }
         for (String key : defaults.stringPropertyNames()) {
+            if (key.equals("diagnostics.enabled")) continue;
             int value;
             try { value = Integer.parseInt(this.config.getProperty(key)); }
             catch (NumberFormatException error) { throw new java.io.IOException("Invalid auth setting: " + key, error); }
             if (value < 1) throw new java.io.IOException("Auth setting must be positive: " + key);
+        }
+        String diagnosticsEnabled = this.config.getProperty("diagnostics.enabled", "true");
+        if (!diagnosticsEnabled.equalsIgnoreCase("true") && !diagnosticsEnabled.equalsIgnoreCase("false")) {
+            throw new java.io.IOException("diagnostics.enabled must be true or false");
         }
         if (integer("password.minLength", 10) > integer("password.maxLength", 128)
                 || integer("login.baseLockoutSeconds", 60) > integer("login.maxLockoutSeconds", 900)) {
@@ -118,17 +129,17 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
         switch (sub) {
             case "register" -> {
                 if (args.size() != 3) send.accept("§eUsage: /ng register <account> <password> <confirm-password>");
-                else submit(send, () -> register(args.get(0), args.get(1), args.get(2), player.name(), sessionId));
+                else submit("register", send, () -> register(args.get(0), args.get(1), args.get(2), player.name(), sessionId));
             }
             case "login" -> {
                 if (args.size() != 2) send.accept("§eUsage: /ng login <account> <password>");
-                else submit(send, () -> login(args.get(0), args.get(1), player.name(), sessionId));
+                else submit("login", send, () -> login(args.get(0), args.get(1), player.name(), sessionId));
             }
             case "logout" -> send.accept(logout(sessionId)
                     ? "§aYou have logged out of NekoGate." : "§eYou are not logged in to NekoGate.");
             case "changepassword" -> {
                 if (args.size() != 2) send.accept("§eUsage: /ng changepassword <old-password> <new-password>");
-                else submit(send, () -> changePassword(args.get(0), args.get(1), sessionId));
+                else submit("change_password", send, () -> changePassword(args.get(0), args.get(1), sessionId));
             }
             case "status" -> send.accept(isAuthenticated(sessionId)
                     ? "§aNekoGate account: authenticated" : "§eNekoGate account: not authenticated");
@@ -145,22 +156,124 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
         return previous == null || now - previous >= interval;
     }
 
-    private void submit(Consumer<String> reply, Callable<String> operation) {
+    private void submit(String operationName, Consumer<String> reply, Callable<String> operation) {
         if (this.closed.get()) { reply.accept("§cNekoGate authentication is shutting down."); return; }
+        long submittedAt = System.nanoTime();
+        int queueDepthAtSubmit = this.workers.getQueue().size();
         try {
             this.workers.execute(() -> {
-                try { reply.accept(operation.call()); }
-                catch (IllegalArgumentException invalid) {
-                    reply.accept("§c" + (invalid.getMessage() == null ? "Invalid authentication input." : invalid.getMessage()));
-                }
-                catch (Exception error) {
+                long startedAt = System.nanoTime();
+                long queueWaitNanos = startedAt - submittedAt;
+                AuthTiming timing = new AuthTiming(operationName, queueDepthAtSubmit);
+                this.activeTiming.set(timing);
+                String response;
+                String outcome;
+                try {
+                    response = operation.call();
+                    outcome = response.startsWith("§a") ? "success" : response.startsWith("§c") ? "rejected" : "completed";
+                } catch (IllegalArgumentException invalid) {
+                    response = "§c" + (invalid.getMessage() == null ? "Invalid authentication input." : invalid.getMessage());
+                    outcome = "invalid_input";
+                } catch (Exception error) {
                     System.err.println("[NekoGate][AUTH] Operation failed: " + error.getClass().getSimpleName());
-                    reply.accept("§cNekoGate authentication failed due to an internal error.");
+                    response = "§cNekoGate authentication failed due to an internal error.";
+                    outcome = "error";
+                } finally {
+                    this.activeTiming.remove();
                 }
+                long executionNanos = System.nanoTime() - startedAt;
+                long replyStartedAt = System.nanoTime();
+                try {
+                    reply.accept(response);
+                } catch (Throwable error) {
+                    outcome = "reply_error";
+                    System.err.println("[NekoGate][AUTH] Could not send authentication result: " + error.getClass().getSimpleName());
+                }
+                long replyNanos = System.nanoTime() - replyStartedAt;
+                logDiagnostics(timing, outcome, queueWaitNanos, executionNanos, replyNanos);
             });
         } catch (RejectedExecutionException busy) {
             reply.accept("§cNekoGate authentication is busy. Please try again shortly.");
+            recordSynchronousTiming("auth_queue_rejected", System.nanoTime() - submittedAt);
         }
+    }
+
+    private static final class AuthTiming {
+        final String operation;
+        final int queueDepthAtSubmit;
+        long databaseReadNanos;
+        long databaseWriteNanos;
+        long argonNanos;
+
+        AuthTiming(String operation, int queueDepthAtSubmit) {
+            this.operation = operation;
+            this.queueDepthAtSubmit = queueDepthAtSubmit;
+        }
+    }
+
+    private void addArgonTime(long startedAt) {
+        AuthTiming timing = this.activeTiming.get();
+        if (timing != null) timing.argonNanos += System.nanoTime() - startedAt;
+    }
+
+    private void addDatabaseReadTime(long startedAt) {
+        AuthTiming timing = this.activeTiming.get();
+        if (timing != null) timing.databaseReadNanos += System.nanoTime() - startedAt;
+    }
+
+    private void addDatabaseWriteTime(long startedAt) {
+        AuthTiming timing = this.activeTiming.get();
+        if (timing != null) timing.databaseWriteNanos += System.nanoTime() - startedAt;
+    }
+
+    private boolean verifyPasswordTimed(char[] password, String encoded) {
+        long startedAt = System.nanoTime();
+        try { return verifyPassword(password, encoded); }
+        finally { addArgonTime(startedAt); }
+    }
+
+    private String hashPasswordTimed(char[] password) {
+        long startedAt = System.nanoTime();
+        try { return hashPassword(password); }
+        finally { addArgonTime(startedAt); }
+    }
+
+    private boolean diagnosticsEnabled() {
+        return Boolean.parseBoolean(this.config.getProperty("diagnostics.enabled", "true"));
+    }
+
+    void recordSynchronousTiming(String stage, long elapsedNanos) {
+        if (!diagnosticsEnabled()) return;
+        long threshold = TimeUnit.MILLISECONDS.toNanos(integer("diagnostics.slowOperationMillis", 25));
+        if (elapsedNanos >= threshold) {
+            System.out.println("[NekoGate][AUTH-DIAG] slow_stage=" + stage
+                    + " elapsedMs=" + TimeUnit.NANOSECONDS.toMillis(elapsedNanos));
+        }
+    }
+
+    private void logDiagnostics(AuthTiming timing, String outcome, long queueWaitNanos,
+                                long executionNanos, long replyNanos) {
+        if (!diagnosticsEnabled()) return;
+        MemoryUsage heap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
+        long gcCount = 0, gcTimeMillis = 0;
+        for (GarbageCollectorMXBean collector : ManagementFactory.getGarbageCollectorMXBeans()) {
+            if (collector.getCollectionCount() > 0) gcCount += collector.getCollectionCount();
+            if (collector.getCollectionTime() > 0) gcTimeMillis += collector.getCollectionTime();
+        }
+        System.out.println("[NekoGate][AUTH-DIAG] operation=" + timing.operation
+                + " outcome=" + outcome
+                + " queueWaitMs=" + TimeUnit.NANOSECONDS.toMillis(queueWaitNanos)
+                + " queueDepthAtSubmit=" + timing.queueDepthAtSubmit
+                + " queueDepthNow=" + this.workers.getQueue().size()
+                + " argonMs=" + TimeUnit.NANOSECONDS.toMillis(timing.argonNanos)
+                + " dbReadMs=" + TimeUnit.NANOSECONDS.toMillis(timing.databaseReadNanos)
+                + " dbWriteMs=" + TimeUnit.NANOSECONDS.toMillis(timing.databaseWriteNanos)
+                + " executionMs=" + TimeUnit.NANOSECONDS.toMillis(executionNanos)
+                + " replyMs=" + TimeUnit.NANOSECONDS.toMillis(replyNanos)
+                + " heapUsedMiB=" + (heap.getUsed() / (1024 * 1024))
+                + " heapCommittedMiB=" + (heap.getCommitted() / (1024 * 1024))
+                + " gcCount=" + gcCount
+                + " gcTimeMs=" + gcTimeMillis);
     }
 
     private String register(String accountName, String password, String confirmation, String playerName, String sessionId) throws Exception {
@@ -168,18 +281,23 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
         String username = normalizeUsername(accountName);
         validatePassword(password);
         if (!password.equals(confirmation)) return "§cPasswords do not match.";
-        String encoded = hashPassword(password.toCharArray());
-        synchronized (this.databaseLock) {
+        String encoded = hashPasswordTimed(password.toCharArray());
+        long databaseWriteStartedAt = System.nanoTime();
+        try {
+            synchronized (this.databaseLock) {
             try (PreparedStatement statement = this.database.prepareStatement(
                     "INSERT INTO accounts(username,password_hash,created_at,updated_at) VALUES(?,?,?,?)")) {
                 String now = Instant.now().toString();
                 statement.setString(1, username); statement.setString(2, encoded);
                 statement.setString(3, now); statement.setString(4, now);
                 statement.executeUpdate();
-            } catch (SQLException duplicate) {
-                if (isConstraintViolation(duplicate)) return "§cA NekoGate account with this name already exists.";
-                throw duplicate;
+                } catch (SQLException duplicate) {
+                    if (isConstraintViolation(duplicate)) return "§cA NekoGate account with this name already exists.";
+                    throw duplicate;
+                }
             }
+        } finally {
+            addDatabaseWriteTime(databaseWriteStartedAt);
         }
         if (!createSession(username, playerName, sessionId)) return "§cAccount registered, but this account or player session is already active.";
         return "§aNekoGate account registered and logged in. This password is separate from your server password.";
@@ -189,7 +307,9 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
         String username = normalizeUsername(accountName);
         if (isAuthenticated(sessionId)) return "§eYou are already logged in to NekoGate.";
         Account account;
-        synchronized (this.databaseLock) {
+        long databaseReadStartedAt = System.nanoTime();
+        try {
+            synchronized (this.databaseLock) {
             try (PreparedStatement statement = this.database.prepareStatement(
                     "SELECT password_hash,failed_attempts,locked_until FROM accounts WHERE username=?")) {
                 statement.setString(1, username);
@@ -201,24 +321,32 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
                     }
                 }
             }
+            }
+        } finally {
+            addDatabaseReadTime(databaseReadStartedAt);
         }
         if (!passwordWithinMaximum(password)) return "§cInvalid NekoGate account or password.";
         if (account.lockedUntil() > Instant.now().getEpochSecond()) {
-            verifyPassword(password.toCharArray(), DUMMY_HASH);
+            verifyPasswordTimed(password.toCharArray(), DUMMY_HASH);
             return "§cInvalid NekoGate account or password.";
         }
-        boolean passwordMatches = verifyPassword(password.toCharArray(), account.passwordHash());
+        boolean passwordMatches = verifyPasswordTimed(password.toCharArray(), account.passwordHash());
         if (!passwordMatches) {
             if (account.exists()) recordFailure(username, account.failedAttempts());
             return "§cInvalid NekoGate account or password.";
         }
         if (!account.exists()) return "§cInvalid NekoGate account or password.";
-        synchronized (this.databaseLock) {
-            try (PreparedStatement statement = this.database.prepareStatement(
+        long databaseWriteStartedAt = System.nanoTime();
+        try {
+            synchronized (this.databaseLock) {
+                try (PreparedStatement statement = this.database.prepareStatement(
                     "UPDATE accounts SET failed_attempts=0,locked_until=0,updated_at=? WHERE username=?")) {
                 statement.setString(1, Instant.now().toString()); statement.setString(2, username);
-                statement.executeUpdate();
+                    statement.executeUpdate();
+                }
             }
+        } finally {
+            addDatabaseWriteTime(databaseWriteStartedAt);
         }
         if (!createSession(username, playerName, sessionId)) return "§cThis account or player session is already active.";
         return "§aNekoGate login successful.";
@@ -230,23 +358,33 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
         if (!passwordWithinMaximum(oldPassword)) return "§cThe old NekoGate password is incorrect.";
         validatePassword(newPassword);
         String stored;
-        synchronized (this.databaseLock) {
-            try (PreparedStatement statement = this.database.prepareStatement("SELECT password_hash FROM accounts WHERE username=?")) {
+        long databaseReadStartedAt = System.nanoTime();
+        try {
+            synchronized (this.databaseLock) {
+                try (PreparedStatement statement = this.database.prepareStatement("SELECT password_hash FROM accounts WHERE username=?")) {
                 statement.setString(1, username);
                 try (ResultSet result = statement.executeQuery()) {
                     if (!result.next()) return "§cNekoGate account not found.";
                     stored = result.getString(1);
+                    }
                 }
             }
+        } finally {
+            addDatabaseReadTime(databaseReadStartedAt);
         }
-        if (!verifyPassword(oldPassword.toCharArray(), stored)) return "§cThe old NekoGate password is incorrect.";
-        String replacement = hashPassword(newPassword.toCharArray());
-        synchronized (this.databaseLock) {
+        if (!verifyPasswordTimed(oldPassword.toCharArray(), stored)) return "§cThe old NekoGate password is incorrect.";
+        String replacement = hashPasswordTimed(newPassword.toCharArray());
+        long databaseWriteStartedAt = System.nanoTime();
+        try {
+            synchronized (this.databaseLock) {
             try (PreparedStatement statement = this.database.prepareStatement(
                     "UPDATE accounts SET password_hash=?,failed_attempts=0,locked_until=0,updated_at=? WHERE username=?")) {
                 statement.setString(1, replacement); statement.setString(2, Instant.now().toString());
-                statement.setString(3, username); statement.executeUpdate();
+                    statement.setString(3, username); statement.executeUpdate();
+                }
             }
+        } finally {
+            addDatabaseWriteTime(databaseWriteStartedAt);
         }
         return "§aNekoGate password changed.";
     }
@@ -260,13 +398,18 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
                     (long) integer("login.baseLockoutSeconds", 60) * (1L << exponent));
             lockUntil = Instant.now().getEpochSecond() + duration;
         }
-        synchronized (this.databaseLock) {
-            try (PreparedStatement statement = this.database.prepareStatement(
+        long databaseWriteStartedAt = System.nanoTime();
+        try {
+            synchronized (this.databaseLock) {
+                try (PreparedStatement statement = this.database.prepareStatement(
                     "UPDATE accounts SET failed_attempts=?,locked_until=?,updated_at=? WHERE username=?")) {
                 statement.setInt(1, failures); statement.setLong(2, lockUntil);
                 statement.setString(3, Instant.now().toString()); statement.setString(4, username);
-                statement.executeUpdate();
+                    statement.executeUpdate();
+                }
             }
+        } finally {
+            addDatabaseWriteTime(databaseWriteStartedAt);
         }
     }
 
