@@ -38,3 +38,11 @@ tasks.register('apiJar', Jar) {
 tasks.named('build') {
     dependsOn tasks.named('apiJar')
 }
+
+// Install only the runnable ViaProxy plugin. The API-only JAR is kept in
+// build/libs for extension developers and must not be loaded as a plugin.
+tasks.register('installPlugin', Copy) {
+    dependsOn tasks.named('build')
+    from(tasks.named('jar'))
+    into new File(project.projectDir.parentFile, 'plugins')
+}
