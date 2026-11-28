@@ -81,10 +81,13 @@ pub fn read_packet_opt<R: Read>(s: &mut R) -> Result<Option<Vec<u8>>, std::io::E
 }
 
 pub fn write_packet<W: Write>(s: &mut W, data: &[u8]) -> std::io::Result<()> {
+    // Build the complete frame before writing, avoiding separate prefix and
+    // payload writes for every small Minecraft packet.
     let len = write_varint(data.len() as i32);
-    s.write_all(&len)?;
-    s.write_all(data)?;
-    s.flush()
+    let mut frame = Vec::with_capacity(len.len() + data.len());
+    frame.extend_from_slice(&len);
+    frame.extend_from_slice(data);
+    s.write_all(&frame)
 }
 
 pub fn unwrap_payload(pkt: &[u8], threshold: i32) -> Option<Vec<u8>> {

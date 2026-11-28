@@ -49,6 +49,12 @@ pub fn handle_client(
         return;
     }
 
+    // Minecraft is latency-sensitive and sends many small packets. Disable
+    // Nagle on both legs to avoid delaying small packet forwarding.
+    if let Err(e) = client.set_nodelay(true) {
+        logger.warn(&format!("无法为客户端套接字启用 TCP_NODELAY: {}", e));
+    }
+
     let total = TOTAL_CONNECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
     let active = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
     let conn_id = format!("#{}", total);
@@ -160,6 +166,10 @@ pub fn handle_client(
             return;
         }
     };
+
+    if let Err(e) = backend.set_nodelay(true) {
+        logger.warn(&format!("无法为 ViaProxy 上游套接字启用 TCP_NODELAY: {}", e));
+    }
 
     logger.info(&format!(
         "[{}] {} 对端 {}",
