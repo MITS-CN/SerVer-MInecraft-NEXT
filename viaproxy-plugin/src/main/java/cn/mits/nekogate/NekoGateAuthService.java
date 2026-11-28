@@ -25,6 +25,8 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
     private final Object databaseLock = new Object();
     private final Connection database;
     private final Map<String, String> sessions = new ConcurrentHashMap<>();
+    private final Map<String, String> sessionPlayers = new ConcurrentHashMap<>();
+    private final Map<String, String> playerSessions = new ConcurrentHashMap<>();
     private final Set<String> activeConnections = ConcurrentHashMap.newKeySet();
     private final Map<String, String> accountSessions = new ConcurrentHashMap<>();
     private final Map<String, Long> lastAttempts = new ConcurrentHashMap<>();
@@ -115,22 +117,22 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
         List<String> args = tokens.size() > 2 ? tokens.subList(2, tokens.size()) : List.of();
         switch (sub) {
             case "register" -> {
-                if (args.size() != 2) send.accept("§eUsage: /ng register <password> <confirm-password>");
-                else submit(send, () -> register(player.name(), args.get(0), args.get(1), sessionId));
+                if (args.size() != 3) send.accept("§eUsage: /ng register <account> <password> <confirm-password>");
+                else submit(send, () -> register(args.get(0), args.get(1), args.get(2), player.name(), sessionId));
             }
             case "login" -> {
-                if (args.size() != 1) send.accept("§eUsage: /ng login <password>");
-                else submit(send, () -> login(player.name(), args.get(0), sessionId));
+                if (args.size() != 2) send.accept("§eUsage: /ng login <account> <password>");
+                else submit(send, () -> login(args.get(0), args.get(1), player.name(), sessionId));
             }
             case "logout" -> send.accept(logout(sessionId)
                     ? "§aYou have logged out of NekoGate." : "§eYou are not logged in to NekoGate.");
             case "changepassword" -> {
                 if (args.size() != 2) send.accept("§eUsage: /ng changepassword <old-password> <new-password>");
-                else submit(send, () -> changePassword(player.name(), args.get(0), args.get(1), sessionId));
+                else submit(send, () -> changePassword(args.get(0), args.get(1), sessionId));
             }
             case "status" -> send.accept(isAuthenticated(sessionId)
                     ? "§aNekoGate account: authenticated" : "§eNekoGate account: not authenticated");
-            case "help" -> send.accept("§eNekoGate: /ng register, /ng login, /ng logout, /ng changepassword, /ng status");
+            case "help" -> send.accept("§eNekoGate: /ng register <account> <password> <confirm>, /ng login <account> <password>, /ng logout, /ng changepassword <old> <new>, /ng status");
             default -> send.accept("§eUnknown NekoGate subcommand. Use /ng for help.");
         }
         return true;
@@ -161,8 +163,9 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
         }
     }
 
-    private String register(String playerName, String password, String confirmation, String sessionId) throws Exception {
-        String username = normalizeUsername(playerName);
+    private String register(String accountName, String password, String confirmation, String playerName, String sessionId) throws Exception {
+        if (isAuthenticated(sessionId)) return "§eLog out of the current NekoGate account first.";
+        String username = normalizeUsername(accountName);
         validatePassword(password);
         if (!password.equals(confirmation)) return "§cPasswords do not match.";
         String encoded = hashPassword(password.toCharArray());
@@ -178,12 +181,12 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
                 throw duplicate;
             }
         }
-        if (!createSession(username, sessionId)) return "§cAccount registered, but it is active in another proxy session.";
+        if (!createSession(username, playerName, sessionId)) return "§cAccount registered, but this account or player session is already active.";
         return "§aNekoGate account registered and logged in. This password is separate from your server password.";
     }
 
-    private String login(String playerName, String password, String sessionId) throws Exception {
-        String username = normalizeUsername(playerName);
+    private String login(String accountName, String password, String playerName, String sessionId) throws Exception {
+        String username = normalizeUsername(accountName);
         if (isAuthenticated(sessionId)) return "§eYou are already logged in to NekoGate.";
         Account account;
         synchronized (this.databaseLock) {
@@ -217,13 +220,13 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
                 statement.executeUpdate();
             }
         }
-        if (!createSession(username, sessionId)) return "§cThis account is already active in another proxy session.";
+        if (!createSession(username, playerName, sessionId)) return "§cThis account or player session is already active.";
         return "§aNekoGate login successful.";
     }
 
-    private String changePassword(String playerName, String oldPassword, String newPassword, String sessionId) throws Exception {
-        String username = normalizeUsername(playerName);
-        if (!isAuthenticated(sessionId)) return "§cLog in to NekoGate first.";
+    private String changePassword(String oldPassword, String newPassword, String sessionId) throws Exception {
+        String username = this.sessions.get(sessionId);
+        if (username == null) return "§cLog in to NekoGate first.";
         if (!passwordWithinMaximum(oldPassword)) return "§cThe old NekoGate password is incorrect.";
         validatePassword(newPassword);
         String stored;
@@ -276,13 +279,21 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
         return sessionId != null && this.activeConnections.contains(sessionId) && !this.closed.get();
     }
 
-    private boolean createSession(String username, String sessionId) {
+    private boolean createSession(String username, String playerName, String sessionId) {
+        if (playerName == null || playerName.isBlank()) return false;
+        String playerKey = playerName.toLowerCase(Locale.ROOT);
         synchronized (this.accountSessions) {
             if (!isConnectionActive(sessionId)) return false;
-            String existing = this.accountSessions.get(username);
-            if (existing != null && !existing.equals(sessionId)) return false;
+            String existingAccount = this.sessions.get(sessionId);
+            if (existingAccount != null && !existingAccount.equals(username)) return false;
+            String existingAccountSession = this.accountSessions.get(username);
+            if (existingAccountSession != null && !existingAccountSession.equals(sessionId)) return false;
+            String existingPlayerSession = this.playerSessions.get(playerKey);
+            if (existingPlayerSession != null && !existingPlayerSession.equals(sessionId)) return false;
             this.accountSessions.put(username, sessionId);
             this.sessions.put(sessionId, username);
+            this.sessionPlayers.put(sessionId, playerKey);
+            this.playerSessions.put(playerKey, sessionId);
             return true;
         }
     }
@@ -290,9 +301,11 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
     private boolean logout(String sessionId) {
         synchronized (this.accountSessions) {
             String username = this.sessions.remove(sessionId);
+            String playerKey = this.sessionPlayers.remove(sessionId);
             this.lastAttempts.remove(sessionId);
             if (username == null) return false;
             this.accountSessions.remove(username, sessionId);
+            if (playerKey != null) this.playerSessions.remove(playerKey, sessionId);
             return true;
         }
     }
@@ -308,13 +321,14 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
     boolean isAuthenticated(String sessionId) { return sessionId != null && this.sessions.containsKey(sessionId); }
 
     @Override public boolean isAuthenticated(NekoGateAPI.Player player) {
-        return player != null && player.name() != null
-                && this.accountSessions.containsKey(player.name().toLowerCase(Locale.ROOT));
+        if (player == null || player.name() == null) return false;
+        String sessionId = this.playerSessions.get(player.name().toLowerCase(Locale.ROOT));
+        return sessionId != null && this.sessions.containsKey(sessionId);
     }
 
     private static String normalizeUsername(String name) {
-        if (name == null || !name.matches("[A-Za-z0-9_]{1,16}")) {
-            throw new IllegalArgumentException("Player name is not valid for a NekoGate account.");
+        if (name == null || !name.matches("[A-Za-z0-9_]{3,32}")) {
+            throw new IllegalArgumentException("NekoGate account names must be 3-32 letters, digits, or underscores.");
         }
         return name.toLowerCase(Locale.ROOT);
     }
@@ -382,8 +396,8 @@ final class NekoGateAuthService implements NekoGateAPI.AuthenticationService, Au
 
     @Override public void close() {
         if (!this.closed.compareAndSet(false, true)) return;
-        this.workers.shutdownNow(); this.sessions.clear(); this.accountSessions.clear();
-        this.activeConnections.clear(); this.lastAttempts.clear();
+        this.workers.shutdownNow(); this.sessions.clear(); this.sessionPlayers.clear();
+        this.playerSessions.clear(); this.accountSessions.clear(); this.activeConnections.clear(); this.lastAttempts.clear();
         synchronized (this.databaseLock) { try { this.database.close(); } catch (SQLException ignored) { } }
     }
 }
