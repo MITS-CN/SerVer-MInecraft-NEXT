@@ -41,6 +41,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Observes player activity and movement; registered extension commands may be consumed before backend forwarding.
@@ -68,6 +69,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
     private volatile long loginDiagnosticPackets;
     private volatile long loginDiagnosticBytes;
     private volatile long lastNbtDiagnosticAt;
+    private final AtomicLong keepAliveDiagnosticPackets = new AtomicLong();
 
     private static final int MAX_SYSTEM_MESSAGE_NBT_BYTES = 64 * 1024;
     private static final int MAX_SYSTEM_MESSAGE_NBT_DEPTH = 64;
@@ -102,6 +104,10 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                     unknown.packetId
             );
             if (type == null) return true;
+            if (type.name().contains("KEEP_ALIVE")) {
+                logKeepAliveDiagnostic("C2P", type, unknown.packetId,
+                        unknown.data == null ? 0 : unknown.data.length);
+            }
 
             if (this.logger.isLocationLoggingEnabled()) {
                 updateMovement(type, unknown.data);
@@ -160,6 +166,10 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                     serverProtocol,
                     unknown.packetId
             );
+            if (type != null && type.name().contains("KEEP_ALIVE")) {
+                logKeepAliveDiagnostic("P2S", type, unknown.packetId,
+                        unknown.data == null ? 0 : unknown.data.length);
+            }
             if (type == MCPackets.S2C_COMMANDS && this.extensionApi != null) {
                 byte[] rewritten = BrigadierCommandTree.appendCommands(
                         unknown.data, this.extensionApi.visibleCommands(apiPlayer()));
@@ -875,6 +885,16 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                     + " elapsedMs=" + (System.currentTimeMillis() - started.toEpochMilli())
                     + " serverProtocol=" + serverProtocol);
         }
+    }
+
+    private void logKeepAliveDiagnostic(String direction, MCPackets type, int packetId, int bytes) {
+        Instant started = this.loginAttemptAt;
+        if (started == null) return;
+        long count = this.keepAliveDiagnosticPackets.incrementAndGet();
+        logLoginDiagnostic("KEEPALIVE", "direction=" + direction + " index=" + count
+                + " type=" + type.name() + " id=0x" + Integer.toHexString(packetId)
+                + " bytes=" + bytes
+                + " elapsedMs=" + (System.currentTimeMillis() - started.toEpochMilli()));
     }
 
     private void logLoginDiagnostic(String event, String details) {
