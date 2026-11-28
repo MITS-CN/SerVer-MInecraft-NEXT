@@ -9,7 +9,7 @@
 - **Rust TCP 代理入口**：默认监听 `0.0.0.0:25565`，接收 Minecraft Java Edition 客户端连接。
 - **ViaProxy 协议转换**：由独立 Java 子进程处理实际的 Minecraft 协议转换与后端连接。
 - **自定义后端**：可指定目标服务器地址和端口；默认目标为项目配置的时光墟服务器。
-- **代理层管理命令**：支持 `say`、`tell`、`kick`、`ban`、`unban`、`banlist` 和 `list`，不依赖后端 RCON 或服务端管理插件。
+- **代理层管理命令**：支持 `say`、`tell`、`kick`、`ban`、`unban`、`banlist`、`list`、`op` 和 `deop`，不依赖后端 RCON 或服务端管理插件。
 - **SQLite 封禁名单**：在 `plugins/NekoGate/bans.sqlite3` 保存玩家名、可用时的 UUID、封禁原因、操作者和时间；玩家连接后由 ViaProxy 插件检查封禁状态，并断开已封禁玩家。
 - **玩家活动审计日志（默认关闭）**：可通过 `plugins/NekoGate/config.properties` 开关，按需记录玩家聊天、玩家指令、上下线时间及游戏内坐标/维度；日志以 JSON Lines 格式持续追加到 `plugins/NekoGate/player-activity.jsonl`，不会覆盖旧记录。
 - **聊天消息注入**：自动构建并安装 ViaProxy 插件，通过 ViaVersion 转换管线按目标玩家客户端协议发送系统聊天消息。
@@ -135,6 +135,8 @@ Rust 提供标准输入控制台，也会在本机开放一个 TCP 控制台（`
 | `ban` | — | `ban <玩家> [原因]`，写入 SQLite 封禁名单，并断开在线玩家 |
 | `unban` | — | `unban <玩家名或 UUID>`，移除封禁记录 |
 | `banlist` | — | 查看 SQLite 中保存的封禁记录 |
+| `op` | — | `op <玩家名或 UUID>`，授予玩家全部 NekoGate 扩展权限（仅控制台） |
+| `deop` | — | `deop <玩家名或 UUID>`，撤销玩家全部 NekoGate 扩展权限（仅控制台） |
 | `quit` | `exit` | 关闭代理 |
 
 示例：
@@ -146,11 +148,15 @@ kick Steve 请先阅读服务器规则
 ban Alex 多次恶意破坏
 banlist
 unban Alex
+op Steve
+deop Steve
 list
 help
 ```
 
 封禁数据库默认保存在 `plugins/NekoGate/bans.sqlite3`。请定期备份该文件；删除它会丢失本地封禁记录。封禁检查由 ViaProxy 插件执行，命令和封禁数据都不依赖后端服务器的 RCON。
+
+`op` / `deop` 只存在于 Rust 标准输入控制台和本机 TCP 控制台（`127.0.0.1:25625`），不会注册为游戏内命令。OP 状态写入 `plugins/NekoGate/permissions.properties`，执行后立即生效并在重启后保留；默认没有任何玩家获得扩展权限。
 
 ## NekoGate 独立账号认证
 
