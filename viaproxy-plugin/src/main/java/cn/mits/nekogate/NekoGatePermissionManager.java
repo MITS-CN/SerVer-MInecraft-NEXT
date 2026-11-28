@@ -72,22 +72,15 @@ final class NekoGatePermissionManager implements NekoGateAPI.PermissionService {
      * Grants or revokes full extension access for a player name or UUID.
      * This is called only by the local Rust console control action.
      */
-    synchronized void setOperator(String playerNameOrUuid, boolean operator) {
+    synchronized void setOperator(String playerNameOrUuid, String uuid, boolean operator) {
         if (playerNameOrUuid == null || playerNameOrUuid.isBlank()) {
             throw new IllegalArgumentException("player name or UUID is required");
         }
 
         Properties previous = new Properties();
         previous.putAll(this.grants);
-        String existingKey = null;
-        for (String key : this.grants.stringPropertyNames()) {
-            if (key.equalsIgnoreCase(playerNameOrUuid)) {
-                existingKey = key;
-                break;
-            }
-        }
-
-        if (existingKey != null) this.grants.remove(existingKey);
+        removeMatchingKey(playerNameOrUuid);
+        if (uuid != null && !uuid.isBlank()) removeMatchingKey(uuid);
         if (operator) this.grants.setProperty(playerNameOrUuid, "*");
 
         Path temporary = this.file.resolveSibling(this.file.getFileName() + ".tmp");
@@ -109,6 +102,12 @@ final class NekoGatePermissionManager implements NekoGateAPI.PermissionService {
                 error.addSuppressed(cleanupError);
             }
             throw new IllegalStateException("Could not save extension permissions: " + error.getMessage(), error);
+        }
+    }
+
+    private void removeMatchingKey(String value) {
+        for (String key : this.grants.stringPropertyNames().toArray(String[]::new)) {
+            if (key.equalsIgnoreCase(value)) this.grants.remove(key);
         }
     }
 
