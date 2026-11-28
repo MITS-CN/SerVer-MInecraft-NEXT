@@ -24,4 +24,4 @@ else
     unzip -q "$ZIP" -d "$INSTALL"
   fi
 fi
-exec "$GRADLE" -p "$ROOT/viaproxy-plugin" build
+exec "$GRADLE" -p "$ROOT/viaproxy-plugin" installPlugin
