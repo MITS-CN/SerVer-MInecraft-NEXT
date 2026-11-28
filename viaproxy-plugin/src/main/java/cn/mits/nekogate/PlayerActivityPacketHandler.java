@@ -105,7 +105,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
             );
             if (type == null) return true;
             if (type.name().contains("KEEP_ALIVE")) {
-                logKeepAliveDiagnostic("C2P", type, unknown.packetId,
+                logKeepAliveDiagnostic("handleC2P", type, unknown.packetId,
                         unknown.data == null ? 0 : unknown.data.length);
             }
 
@@ -167,7 +167,7 @@ final class PlayerActivityPacketHandler extends PacketHandler {
                     unknown.packetId
             );
             if (type != null && type.name().contains("KEEP_ALIVE")) {
-                logKeepAliveDiagnostic("P2S", type, unknown.packetId,
+                logKeepAliveDiagnostic("handleP2S", type, unknown.packetId,
                         unknown.data == null ? 0 : unknown.data.length);
             }
             if (type == MCPackets.S2C_COMMANDS && this.extensionApi != null) {
