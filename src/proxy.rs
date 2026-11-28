@@ -49,6 +49,11 @@ pub fn handle_client(
         return;
     }
 
+    // Avoid Nagle/delayed-ACK latency for small Minecraft packets.
+    if let Err(e) = client.set_nodelay(true) {
+        logger.warn(&format!("无法为客户端套接字启用 TCP_NODELAY: {}", e));
+    }
+
     let total = TOTAL_CONNECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
     let active = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
     let conn_id = format!("#{}", total);
@@ -160,6 +165,10 @@ pub fn handle_client(
             return;
         }
     };
+
+    if let Err(e) = backend.set_nodelay(true) {
+        logger.warn(&format!("[{}] 无法为 ViaProxy 套接字启用 TCP_NODELAY: {}", conn_id, e));
+    }
 
     logger.info(&format!(
         "[{}] {} 对端 {}",
